@@ -119,3 +119,4 @@ export async function fetchRemotePublicReceipt(token: string): Promise<any | nul
     return null;
   }
 }
+

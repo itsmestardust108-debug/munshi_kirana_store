@@ -2,6 +2,10 @@
 
 A production-grade, zero-cost Progressive Web App (PWA) designed specifically for an Indian family kirana shop. Built with React 18, TypeScript, Vite, Tailwind CSS, Lucide icons, Dexie (IndexedDB), and Supabase.
 
+* **🌐 Live Production Web App:** [https://munshi-kirana-store.pages.dev](https://munshi-kirana-store.pages.dev)
+* **📦 GitHub Repository:** [https://github.com/itsmestardust108-debug/munshi_kirana_store](https://github.com/itsmestardust108-debug/munshi_kirana_store)
+* **📋 Infrastructure Runbook:** [docs/DEPLOYMENT_AND_INFRASTRUCTURE.md](docs/DEPLOYMENT_AND_INFRASTRUCTURE.md)
+
 ---
 
 ## 🌟 Key Features
