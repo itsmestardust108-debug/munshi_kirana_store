@@ -552,3 +552,4 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({ language }) =>
     </div>
   );
 };
+

@@ -19,3 +19,4 @@ if (typeof window !== 'undefined') {
   // @ts-expect-error Mock webkitSpeechRecognition
   window.webkitSpeechRecognition = window.SpeechRecognition;
 }
+

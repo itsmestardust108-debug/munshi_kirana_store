@@ -243,6 +243,20 @@ export function allocateRepayment(
   // Filter out reversed charges
   let queue = activeCharges.filter((c) => !c.isReversed && toDecimal(c.amount).greaterThan(0));
 
+  // Sort queue chronologically (oldest charge first)
+  queue.sort((a, b) => {
+    const pA = parseDate(a.transactionDate);
+    const pB = parseDate(b.transactionDate);
+    if (pA.valid && pB.valid && pA.date && pB.date) {
+      const cmp = compareDates(pA.date, pB.date);
+      if (cmp !== 0) return cmp;
+    } else {
+      const cmp = a.transactionDate.localeCompare(b.transactionDate);
+      if (cmp !== 0) return cmp;
+    }
+    return (a.createdAt || '').localeCompare(b.createdAt || '');
+  });
+
   // If specific charge selected, bring it to front
   if (specificChargeId) {
     const specific = queue.find((c) => c.id === specificChargeId);
@@ -270,3 +284,4 @@ export function allocateRepayment(
     unallocatedAmount: roundPaise(remaining),
   };
 }
+

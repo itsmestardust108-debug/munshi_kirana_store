@@ -113,3 +113,4 @@ describe('End-to-End System Integration Tests', () => {
     await expect(verifyAndPreviewBackup(encryptedJson, 'WrongPassword')).rejects.toThrow();
   });
 });
+

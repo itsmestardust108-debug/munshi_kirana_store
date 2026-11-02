@@ -180,6 +180,10 @@ export async function verifyAndPreviewBackup(
   const dec = new TextDecoder();
   const payload: BackupPayload = JSON.parse(dec.decode(decryptedBytes));
 
+  if (!payload || payload.formatVersion !== '1.0') {
+    throw new Error('असमर्थित बैकअप संस्करण (Unsupported backup format version)');
+  }
+
   return {
     valid: true,
     exportedAt: payload.exportedAt,
@@ -200,6 +204,13 @@ export async function verifyAndPreviewBackup(
  * Restores data transactionally into Dexie
  */
 export async function executeRestore(payload: BackupPayload): Promise<void> {
+  if (!payload || payload.formatVersion !== '1.0') {
+    throw new Error('असमर्थित बैकअप संस्करण (Unsupported backup format version)');
+  }
+  if (!Array.isArray(payload.bills) || !Array.isArray(payload.inventory)) {
+    throw new Error('अमान्य बैकअप संरचना (Invalid backup structure)');
+  }
+
   await db.transaction(
     'rw',
     [

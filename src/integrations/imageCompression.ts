@@ -91,3 +91,4 @@ export async function compressWholesalePhoto(
     reader.readAsDataURL(file);
   });
 }
+

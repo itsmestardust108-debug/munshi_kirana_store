@@ -4,6 +4,7 @@ import { Printer, Store, CheckCircle, AlertCircle } from 'lucide-react';
 import { db } from '../../data/db';
 import type { Bill } from '../../domain/billing';
 import { formatINR } from '../../domain/money';
+import { fetchRemotePublicReceipt } from '../../integrations/syncEngine';
 
 export const PublicReceiptScreen: React.FC = () => {
   const { shareToken, id } = useParams<{ shareToken?: string; id?: string }>();
@@ -15,18 +16,57 @@ export const PublicReceiptScreen: React.FC = () => {
     async function fetchReceipt() {
       setIsLoading(false);
       try {
-        // Look up by shareToken or billId
         let foundBill: Bill | undefined;
-        if (id) {
-          foundBill = await db.bills.get(id);
-        } else if (shareToken) {
-          const share = await db.receipt_shares.where('token').equals(shareToken).first();
-          if (share && !share.isRevoked) {
-            foundBill = await db.bills.get(share.billId);
+
+        if (shareToken) {
+          // 1. Try remote cloud projection first (for customers on any phone)
+          const remote = await fetchRemotePublicReceipt(shareToken);
+          if (remote) {
+            foundBill = {
+              id: remote.receiptNumber,
+              shopId: 'remote',
+              receiptNumber: remote.receiptNumber,
+              businessDate: remote.businessDate,
+              items: remote.items.map((it: any, idx: number) => ({
+                id: `line-${idx}`,
+                itemName: it.itemName,
+                variantLabel: it.variantLabel,
+                billingUnit: it.billingUnit,
+                baseUnit: it.billingUnit,
+                defaultSellingPrice: Number(it.rate),
+                ratePerBaseUnit: Number(it.rate),
+                isRateOverridden: false,
+                quantity: Number(it.quantity),
+                baseQuantity: Number(it.quantity),
+                lineTotal: Number(it.lineTotal),
+              })),
+              subtotal: Number(remote.subtotal),
+              discount: Number(remote.discount || 0),
+              grandTotal: Number(remote.grandTotal),
+              settlement: {
+                method: remote.settlement?.method || 'cash',
+                cashReceived: Number(remote.settlement?.cashReceived || 0),
+                changeReturned: 0,
+                upiReceived: Number(remote.settlement?.upiReceived || 0),
+                isOwnerConfirmedUpi: false,
+                creditDue: Number(remote.settlement?.creditDue || 0),
+              },
+              status: remote.status,
+              createdAt: new Date().toISOString(),
+              operationId: remote.receiptNumber,
+            };
           } else {
-            // Also check direct bill lookup if token matches billId
-            foundBill = await db.bills.get(shareToken);
+            // 2. Check local device's receipt_shares (verifying expiry and revocation)
+            const share = await db.receipt_shares.where('token').equals(shareToken).first();
+            if (share) {
+              const isExpired = new Date(share.expiresAt).getTime() <= Date.now();
+              if (!share.isRevoked && !isExpired) {
+                foundBill = await db.bills.get(share.billId);
+              }
+            }
           }
+        } else if (id) {
+          foundBill = await db.bills.get(id);
         }
 
         if (foundBill) {
@@ -191,3 +231,4 @@ export const PublicReceiptScreen: React.FC = () => {
     </div>
   );
 };
+

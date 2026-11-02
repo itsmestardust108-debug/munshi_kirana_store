@@ -326,3 +326,4 @@ $$;
 
 -- Grant execution to anonymous public visitors for the receipt RPC only
 GRANT EXECUTE ON FUNCTION public.get_public_receipt(TEXT) TO anon, authenticated;
+

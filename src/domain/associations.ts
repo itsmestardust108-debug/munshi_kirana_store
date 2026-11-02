@@ -227,3 +227,4 @@ function getPopularFallback(
 
   return suggestions;
 }
+

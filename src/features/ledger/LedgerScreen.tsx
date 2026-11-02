@@ -313,3 +313,4 @@ export const LedgerScreen: React.FC<LedgerScreenProps> = ({ language }) => {
     </div>
   );
 };
+

@@ -394,3 +394,4 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ language }) => {
     </div>
   );
 };
+

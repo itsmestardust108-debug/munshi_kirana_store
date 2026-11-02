@@ -110,3 +110,4 @@ docs/                  Architecture, free services, parent guide
 
 ## 📄 License
 MIT. Made with care for family kirana shops.
+

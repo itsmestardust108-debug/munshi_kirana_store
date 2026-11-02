@@ -36,6 +36,7 @@ import { getTodayKolkataDate } from '../../domain/interest';
 import { buildBillWhatsAppLink } from '../../integrations/whatsapp';
 import { InfoModal, type InfoModalItem } from '../../components/InfoModal';
 import { VoiceSearchEngine } from '../../integrations/speech';
+import { createPublicReceiptShare } from '../../integrations/syncEngine';
 
 interface BillingScreenProps {
   language: Language;
@@ -81,6 +82,7 @@ export const BillingScreen: React.FC<BillingScreenProps> = ({ language }) => {
   const [isInfoModalOpen, setIsInfoModalOpen] = useState(false);
 
   const [savedBill, setSavedBill] = useState<Bill | null>(null);
+  const [publicShareUrl, setPublicShareUrl] = useState<string | undefined>(undefined);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
@@ -95,46 +97,57 @@ export const BillingScreen: React.FC<BillingScreenProps> = ({ language }) => {
 
   // Suggestions
   const [suggestions, setSuggestions] = useState<AssociationSuggestion[]>([]);
+  const [isHydrated, setIsHydrated] = useState(false);
 
   // Load Data & Restore Draft
   useEffect(() => {
     async function init() {
-      await seedDemoDataIfEmpty();
-      const inv = await db.inventory.filter((i) => i.isActive).toArray();
-      setInventory(inv);
+      try {
+        await seedDemoDataIfEmpty();
+        const inv = await db.inventory.filter((i) => i.isActive).toArray();
+        setInventory(inv);
 
-      const custs = await db.customers.filter((c) => c.isActive).toArray();
-      setCustomers(custs);
+        const custs = await db.customers.filter((c) => c.isActive).toArray();
+        setCustomers(custs);
 
-      const bills = await db.bills.toArray();
-      setHistoricalBills(bills);
+        const bills = await db.bills.toArray();
+        setHistoricalBills(bills);
 
-      // Check preselected item from navigate state (e.g. from HomeScreen search)
-      if (location.state && (location.state as any).preselectItem) {
-        handleSelectItem((location.state as any).preselectItem);
-      } else {
-        // Restore Draft
-        const draft = await db.drafts.get('active_bill_draft');
-        if (draft?.data?.items?.length) {
-          setBasket(draft.data.items);
-          if (draft.data.customerId) {
-            const foundCust = custs.find((c) => c.id === draft.data.customerId);
-            if (foundCust) setSelectedCustomer(foundCust);
+        // Check preselected item from navigate state (e.g. from HomeScreen search)
+        if (location.state && (location.state as any).preselectItem) {
+          handleSelectItem((location.state as any).preselectItem);
+        } else {
+          // Restore Draft
+          const draft = await db.drafts.get('active_bill_draft');
+          if (draft?.data?.items?.length) {
+            setBasket(draft.data.items);
+            if (draft.data.customerId) {
+              const foundCust = custs.find((c) => c.id === draft.data.customerId);
+              if (foundCust) setSelectedCustomer(foundCust);
+            }
+            if (draft.data.discount) {
+              setDiscount(String(draft.data.discount));
+            }
           }
         }
+      } finally {
+        setIsHydrated(true);
       }
     }
     init();
   }, []);
 
-  // Save Draft on meaningful changes
+  // Save Draft on meaningful changes (only after hydration is complete)
   useEffect(() => {
+    if (!isHydrated) return;
+
     if (basket.length > 0) {
       db.drafts.put({
         key: 'active_bill_draft',
         data: {
           items: basket,
           customerId: selectedCustomer?.id,
+          discount,
           updatedAt: new Date().toISOString(),
         },
         updatedAt: new Date().toISOString(),
@@ -142,7 +155,7 @@ export const BillingScreen: React.FC<BillingScreenProps> = ({ language }) => {
     } else {
       db.drafts.delete('active_bill_draft');
     }
-  }, [basket, selectedCustomer]);
+  }, [basket, selectedCustomer, discount, isHydrated]);
 
   // Voice Search init
   useEffect(() => {
@@ -396,6 +409,14 @@ export const BillingScreen: React.FC<BillingScreenProps> = ({ language }) => {
         // Clear active draft
         await db.drafts.delete('active_bill_draft');
       });
+
+      // Generate public receipt share token
+      try {
+        const { shareUrl } = await createPublicReceiptShare(newBill);
+        setPublicShareUrl(shareUrl);
+      } catch (e) {
+        console.warn('Local share token generation fallback:', e);
+      }
 
       setSavedBill(newBill);
       setBasket([]);
@@ -923,7 +944,8 @@ export const BillingScreen: React.FC<BillingScreenProps> = ({ language }) => {
                   const link = buildBillWhatsAppLink(
                     savedBill,
                     savedBill.settlement.customerPhone,
-                    'मुंशी किराना स्टोर'
+                    'मुंशी किराना स्टोर',
+                    publicShareUrl
                   );
                   if (link.url) window.open(link.url, '_blank');
                 }}

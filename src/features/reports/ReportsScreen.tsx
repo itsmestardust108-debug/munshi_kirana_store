@@ -19,6 +19,7 @@ import { translations } from '../../i18n';
 import { db, seedDemoDataIfEmpty } from '../../data/db';
 import { formatINR } from '../../domain/money';
 import { getTodayKolkataDate } from '../../domain/interest';
+import { buildCustomerLedgerSummary } from '../../domain/ledger';
 import {
   createEncryptedBackup,
   verifyAndPreviewBackup,
@@ -81,12 +82,20 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({ language }) => {
       billCredit += b.settlement.creditDue || 0;
     }
 
-    // 2. Fetch today's repayments (old credit collections)
-    const todayRepayments = await db.repayments
-      .where('paymentDate')
-      .equals(todayDate)
-      .filter((r) => !r.isReversed)
-      .toArray();
+    // 2. Fetch all ledger entries, reversals, and customers
+    const allCharges = await db.credit_charges.toArray();
+    const allRepayments = await db.repayments.toArray();
+    const allReversals = await db.ledger_reversals.toArray();
+    const allCustomers = await db.customers.toArray();
+
+    const reversedRepaymentIds = new Set(
+      allReversals.filter((r) => r.targetType === 'repayment').map((r) => r.targetId)
+    );
+
+    // Repayments collected on selected date (excluding reversed)
+    const todayRepayments = allRepayments.filter(
+      (r) => r.paymentDate === todayDate && !r.isReversed && !reversedRepaymentIds.has(r.id)
+    );
 
     let repayCash = 0;
     let repayUpi = 0;
@@ -96,13 +105,12 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({ language }) => {
       if (r.method === 'upi') repayUpi += Number(r.amount);
     }
 
-    // 3. Fetch all active credit charges & repayments to derive total outstanding
-    const allCharges = await db.credit_charges.filter((c) => !c.isReversed).toArray();
-    const allRepayments = await db.repayments.filter((r) => !r.isReversed).toArray();
-
-    const sumCharges = allCharges.reduce((acc, c) => acc + Number(c.amount), 0);
-    const sumRepayments = allRepayments.reduce((acc, r) => acc + Number(r.amount), 0);
-    const outstanding = Math.max(0, sumCharges - sumRepayments);
+    // 3. Compute total outstanding per-customer via authoritative summary (incorporating reversals)
+    let outstanding = 0;
+    for (const cust of allCustomers) {
+      const s = buildCustomerLedgerSummary(cust, allCharges, allRepayments, allReversals);
+      outstanding += s.outstandingBalance.toNumber();
+    }
 
     setNetSales(sales);
     setCashCollected(billCash + repayCash);
@@ -429,3 +437,4 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({ language }) => {
     </div>
   );
 };
+

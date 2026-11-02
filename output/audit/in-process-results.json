@@ -1,0 +1,40 @@
+{
+  "total": 8,
+  "passed": 8,
+  "failed": 0,
+  "isolation": "Node + jsdom + fake-indexeddb; no real browser records",
+  "results": [
+    {
+      "name": "Reject negative split-payment components",
+      "status": "PASS"
+    },
+    {
+      "name": "Reject explicitly zero cash tender for a positive bill",
+      "status": "PASS"
+    },
+    {
+      "name": "Charge twelve pieces for one dozen at a per-piece rate",
+      "status": "PASS"
+    },
+    {
+      "name": "Allocate repayments to the oldest charge regardless of input order",
+      "status": "PASS"
+    },
+    {
+      "name": "Retain the saved draft when reopening Billing",
+      "status": "PASS"
+    },
+    {
+      "name": "Reject an expired receipt token",
+      "status": "PASS"
+    },
+    {
+      "name": "Report outstanding agrees with the ledger after repayment reversal",
+      "status": "PASS"
+    },
+    {
+      "name": "Reject unsupported backup versions before replacing records",
+      "status": "PASS"
+    }
+  ]
+}

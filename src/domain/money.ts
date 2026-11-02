@@ -67,3 +67,4 @@ export function validateAmount(amount: Decimal.Value, max = 100_000_000): { vali
     return { valid: false, error: 'अमान्य राशि (Invalid amount)' };
   }
 }
+

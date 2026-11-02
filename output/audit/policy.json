@@ -1,0 +1,17 @@
+{
+  "objective": "Audit the claim that the current Munsi application is fully implemented and production-ready",
+  "mode": "debug",
+  "planning": "deep",
+  "context_depth": "dependency",
+  "verification_depth": "impact",
+  "delegation": "none",
+  "allowed_write_scope": ["output/audit/", "dist/", "node_modules/.vite/"],
+  "non_goals": ["Do not modify application source or existing user changes", "Do not deploy, access real customer records, or send messages"],
+  "acceptance_criteria": ["Rerun existing tests and build", "Reproduce material suspected failures with isolated data", "Report implemented, missing, and unverified capabilities with file references"],
+  "decision": {
+    "action": "Add separate diagnostic probes and an audit report",
+    "reason": "Existing tests cover domain fixtures but omit UI recovery, cloud integration, expiry, and invalid payment cases",
+    "evidence": ["tests/integration.test.ts", "src/features/billing/BillingScreen.tsx", "src/features/receipts/PublicReceiptScreen.tsx", "src/features/reports/ReportsScreen.tsx"],
+    "risk": "low: all data created by probes lives in fake-indexeddb under jsdom"
+  }
+}

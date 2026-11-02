@@ -470,3 +470,4 @@ export const CustomerStatementScreen: React.FC<CustomerStatementScreenProps> = (
     </div>
   );
 };
+

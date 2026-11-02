@@ -437,3 +437,4 @@ export const InterestScreen: React.FC<InterestScreenProps> = ({ language }) => {
     </div>
   );
 };
+

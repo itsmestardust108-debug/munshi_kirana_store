@@ -64,3 +64,4 @@
 - **Safeguard:**
   - Strictly optional. Authoritative byaj calculations and bilingual explanations are computed deterministically 100% offline.
   - If OpenRouter API key is missing or rate-limited, the deterministic explanation is displayed without error.
+

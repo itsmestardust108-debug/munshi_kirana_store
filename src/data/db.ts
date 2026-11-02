@@ -590,3 +590,4 @@ export async function seedDemoDataIfEmpty(): Promise<void> {
 
   await db.bills.bulkAdd(historicalBills);
 }
+

@@ -186,3 +186,4 @@ fs.writeFileSync(path.join(ICONS_DIR, 'icon-maskable-512x512.png'), generateRast
 fs.writeFileSync(path.join(ICONS_DIR, 'apple-touch-icon.png'), generateRasterPNG(180, 180));
 
 console.log('Successfully generated Munsi Kirana Store branding & PWA icons!');
+

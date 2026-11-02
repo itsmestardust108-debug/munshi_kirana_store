@@ -297,3 +297,4 @@ export const translations = {
     connectedModeActive: 'Cloud Sync Mode (Connected)',
   },
 };
+

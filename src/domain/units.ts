@@ -19,7 +19,7 @@ export const UNITS: Record<UnitType, UnitDefinition> = {
   ml: { code: 'ml', labelEn: 'ml', labelHi: 'मिली', category: 'volume', baseUnit: 'l', multiplierToBase: 0.001 },
   pc: { code: 'pc', labelEn: 'piece', labelHi: 'नग', category: 'discrete', baseUnit: 'pc', multiplierToBase: 1 },
   pack: { code: 'pack', labelEn: 'pack', labelHi: 'पैकेट', category: 'discrete', baseUnit: 'pack', multiplierToBase: 1 },
-  dozen: { code: 'dozen', labelEn: 'dozen', labelHi: 'दर्जन', category: 'discrete', baseUnit: 'dozen', multiplierToBase: 1 },
+  dozen: { code: 'dozen', labelEn: 'dozen', labelHi: 'दर्जन', category: 'discrete', baseUnit: 'pc', multiplierToBase: 12 },
 };
 
 /**
@@ -74,3 +74,4 @@ export function calculateLineTotal(
   const lineTotal = toDecimal(ratePerBaseUnit).times(baseQty);
   return roundPaise(lineTotal);
 }
+

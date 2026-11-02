@@ -68,3 +68,4 @@ export const BottomNav: React.FC<BottomNavProps> = ({ language }) => {
     </nav>
   );
 };
+

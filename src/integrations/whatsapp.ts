@@ -123,3 +123,4 @@ export function buildLedgerReminderWhatsAppLink(
     isPhoneValid: norm.valid,
   };
 }
+

@@ -104,3 +104,4 @@ export function searchInventoryItems<T extends MatchableItem>(
   results.sort((a, b) => b.score - a.score);
   return results.slice(0, limit);
 }
+

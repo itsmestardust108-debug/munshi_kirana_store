@@ -121,7 +121,9 @@ export function calculatePaymentSettlement(
   const total = roundPaise(grandTotal);
 
   if (method === 'cash') {
-    const tendered = params.cashTendered ? roundPaise(params.cashTendered) : total;
+    const tendered = params.cashTendered !== undefined && params.cashTendered !== null
+      ? roundPaise(params.cashTendered)
+      : total;
     if (tendered.lessThan(total)) {
       return { valid: false, error: 'प्राप्त नकद राशि बिल कुल से कम है (Tendered cash is less than bill total)' };
     }
@@ -180,6 +182,13 @@ export function calculatePaymentSettlement(
   const upi = roundPaise(params.upiPortion || 0);
   const credit = roundPaise(params.creditPortion || 0);
 
+  if (cash.isNegative() || upi.isNegative() || credit.isNegative()) {
+    return {
+      valid: false,
+      error: 'भुगतान का भाग नकारात्मक नहीं हो सकता (Payment portions cannot be negative)',
+    };
+  }
+
   if (upi.greaterThan(0) && !params.isOwnerConfirmedUpi) {
     return { valid: false, error: 'UPI राशि के लिए भुगतान प्राप्ति की पुष्टि आवश्यक है' };
   }
@@ -209,3 +218,4 @@ export function calculatePaymentSettlement(
     },
   };
 }
+

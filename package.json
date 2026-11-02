@@ -9,6 +9,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:probes": "node -e \"require('./output/audit/run-probes.cjs')\"",
     "generate-assets": "node scripts/generate-assets.js"
   },
   "dependencies": {

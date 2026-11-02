@@ -324,3 +324,4 @@ export const BillHistoryScreen: React.FC<BillHistoryScreenProps> = ({ language }
     </div>
   );
 };
+
