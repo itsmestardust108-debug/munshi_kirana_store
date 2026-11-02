@@ -208,9 +208,11 @@ export async function processOutbox(): Promise<{ processed: number; remaining: n
 
   for (const item of items) {
     try {
+      let uploadSuccessful = false;
+
       if (item.entityType === 'inventory' && item.payload) {
         const inv = item.payload;
-        await supabase.from('inventory').upsert({
+        const { error } = await supabase.from('inventory').upsert({
           id: toValidUuid(inv.id),
           shop_id: toValidUuid(inv.shopId || DEMO_SHOP_ID),
           item_name: inv.itemName,
@@ -222,9 +224,11 @@ export async function processOutbox(): Promise<{ processed: number; remaining: n
           is_active: inv.isActive ?? true,
           updated_at: new Date().toISOString(),
         });
+        if (error) throw error;
+        uploadSuccessful = true;
       } else if (item.entityType === 'customer' && item.payload) {
         const cust = item.payload;
-        await supabase.from('customers').upsert({
+        const { error } = await supabase.from('customers').upsert({
           id: toValidUuid(cust.id),
           shop_id: toValidUuid(cust.shopId || DEMO_SHOP_ID),
           name: cust.name,
@@ -232,10 +236,112 @@ export async function processOutbox(): Promise<{ processed: number; remaining: n
           notes: cust.notes || null,
           is_active: cust.isActive ?? true,
         });
+        if (error) throw error;
+        uploadSuccessful = true;
+      } else if (item.entityType === 'bill' && item.payload) {
+        const bill = item.payload;
+        const validShopId = toValidUuid(bill.shopId || DEMO_SHOP_ID);
+        const validBillId = toValidUuid(bill.id);
+        const { error: billError } = await supabase.from('bills').upsert({
+          id: validBillId,
+          shop_id: validShopId,
+          receipt_number: bill.receiptNumber,
+          business_date: bill.businessDate,
+          subtotal: bill.subtotal,
+          discount: bill.discount,
+          grand_total: bill.grandTotal,
+          settlement_json: bill.settlement,
+          status: bill.status,
+          operation_id: bill.operationId,
+          created_at: bill.createdAt,
+        });
+        if (billError) throw billError;
+
+        if (bill.items && Array.isArray(bill.items)) {
+          const itemsToUpsert = bill.items.map((it: any) => ({
+            id: toValidUuid(it.id),
+            bill_id: validBillId,
+            shop_id: validShopId,
+            inventory_item_id: it.inventoryItemId ? toValidUuid(it.inventoryItemId) : null,
+            item_name: it.itemName,
+            variant_label: it.variantLabel || null,
+            billing_unit: it.billingUnit,
+            base_unit: it.baseUnit,
+            rate_per_base_unit: it.ratePerBaseUnit,
+            is_rate_overridden: it.isRateOverridden,
+            quantity: it.quantity,
+            base_quantity: it.baseQuantity,
+            line_total: it.lineTotal,
+          }));
+          const { error: itemsError } = await supabase.from('bill_items').upsert(itemsToUpsert);
+          if (itemsError) throw itemsError;
+        }
+        uploadSuccessful = true;
+      } else if (item.entityType === 'receipt_share' && item.payload) {
+        const share = item.payload;
+        const validShopId = toValidUuid(DEMO_SHOP_ID);
+        const validBillId = toValidUuid(share.billId);
+        const { error } = await supabase.from('receipt_shares').insert({
+          id: toValidUuid(share.id),
+          shop_id: validShopId,
+          bill_id: validBillId,
+          token_hash: share.tokenHash,
+          expires_at: share.expiresAt,
+          is_revoked: share.isRevoked ?? false,
+        });
+        if (error) throw error;
+        uploadSuccessful = true;
+      } else if (item.entityType === 'charge' && item.payload) {
+        const charge = item.payload;
+        const { error } = await supabase.from('ledger_charges').upsert({
+          id: toValidUuid(charge.id),
+          shop_id: toValidUuid(charge.shopId || DEMO_SHOP_ID),
+          customer_id: toValidUuid(charge.customerId),
+          bill_id: charge.billId ? toValidUuid(charge.billId) : null,
+          amount: charge.amount,
+          operation_id: charge.operationId,
+          created_at: charge.createdAt,
+        });
+        if (error) throw error;
+        uploadSuccessful = true;
+      } else if (item.entityType === 'repayment' && item.payload) {
+        const rep = item.payload;
+        const { error } = await supabase.from('ledger_repayments').upsert({
+          id: toValidUuid(rep.id),
+          shop_id: toValidUuid(rep.shopId || DEMO_SHOP_ID),
+          customer_id: toValidUuid(rep.customerId),
+          amount: rep.amount,
+          operation_id: rep.operationId,
+          created_at: rep.createdAt,
+        });
+        if (error) throw error;
+        uploadSuccessful = true;
+      } else if (item.entityType === 'reversal' && item.payload) {
+        const rev = item.payload;
+        const { error } = await supabase.from('ledger_reversals').upsert({
+          id: toValidUuid(rev.id),
+          shop_id: toValidUuid(rev.shopId || DEMO_SHOP_ID),
+          target_entity_type: rev.targetEntityType,
+          target_entity_id: toValidUuid(rev.targetEntityId),
+          reason: rev.reason,
+          operation_id: rev.operationId,
+          created_at: rev.createdAt,
+        });
+        if (error) throw error;
+        uploadSuccessful = true;
       }
 
-      await db.sync_outbox.delete(item.id);
-      processed++;
+      if (uploadSuccessful) {
+        await db.sync_outbox.delete(item.id);
+        processed++;
+      } else {
+        // Unknown or empty payload entity: mark error and do not delete
+        await db.sync_outbox.update(item.id, {
+          retryCount: (item.retryCount || 0) + 1,
+          errorMessage: `Unhandled entityType or missing payload: ${item.entityType}`,
+          updatedAt: new Date().toISOString(),
+        });
+      }
     } catch (err: any) {
       await db.sync_outbox.update(item.id, {
         retryCount: (item.retryCount || 0) + 1,

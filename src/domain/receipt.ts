@@ -126,3 +126,4 @@ export function buildSanitizedReceipt(
       : 'Thank you for shopping with us! Please visit again.',
   };
 }
+

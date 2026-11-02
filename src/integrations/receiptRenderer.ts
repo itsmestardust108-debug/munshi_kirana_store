@@ -84,13 +84,20 @@ export async function renderReceiptToCanvas(
   // Calculate pagination:
   // Page 1 with header can fit ~8-10 items. Subsequent pages can fit ~14 items.
   const items = receipt.items;
-  const pagesData: Array<{ items: typeof items; isFirstPage: boolean; isLastPage: boolean; pageIndex: number }> = [];
+  const pagesData: Array<{
+    items: typeof items;
+    isFirstPage: boolean;
+    isLastPage: boolean;
+    pageIndex: number;
+    startIndex: number;
+  }> = [];
 
   const FIRST_PAGE_MAX = 8;
   const SUBSEQUENT_PAGE_MAX = 14;
 
+  let runningIndex = 1;
   if (items.length <= FIRST_PAGE_MAX) {
-    pagesData.push({ items, isFirstPage: true, isLastPage: true, pageIndex: 1 });
+    pagesData.push({ items, isFirstPage: true, isLastPage: true, pageIndex: 1, startIndex: 1 });
   } else {
     // First page
     pagesData.push({
@@ -98,7 +105,10 @@ export async function renderReceiptToCanvas(
       isFirstPage: true,
       isLastPage: false,
       pageIndex: 1,
+      startIndex: runningIndex,
     });
+    runningIndex += FIRST_PAGE_MAX;
+
     let remaining = items.slice(FIRST_PAGE_MAX);
     let pageNum = 2;
     while (remaining.length > 0) {
@@ -109,7 +119,9 @@ export async function renderReceiptToCanvas(
         isFirstPage: false,
         isLastPage: isLast,
         pageIndex: pageNum,
+        startIndex: runningIndex,
       });
+      runningIndex += chunk.length;
       remaining = remaining.slice(SUBSEQUENT_PAGE_MAX);
       pageNum++;
     }
@@ -319,9 +331,12 @@ export async function renderReceiptToCanvas(
     y += 36;
 
     // 5. Table Rows
-    let rowIndex = (page.pageIndex - 1) * FIRST_PAGE_MAX + 1;
+    let rowIndex = page.startIndex;
     for (const item of page.items) {
-      const rowHeight = item.variantLabel ? 44 : 36;
+      ctx.font = 'bold 13px "Noto Sans Devanagari", system-ui, sans-serif';
+      const nameLines = wrapText(ctx, item.itemName, 260);
+      const isMultiLine = nameLines.length > 1;
+      const rowHeight = (item.variantLabel && isMultiLine) ? 54 : (item.variantLabel || isMultiLine ? 46 : 36);
 
       // Alternating row background
       ctx.fillStyle = rowIndex % 2 === 0 ? '#FBFBFE' : '#FFFFFF';
@@ -335,16 +350,22 @@ export async function renderReceiptToCanvas(
       ctx.textAlign = 'left';
       ctx.fillText(String(rowIndex), 38, y + 23);
 
-      // Item Name & Variant
+      // Item Name & Variant (multiline wrap with ellipsis fallback)
       ctx.fillStyle = '#0F172A';
-      ctx.font = 'bold 14px "Noto Sans Devanagari", system-ui, sans-serif';
-      const nameLines = wrapText(ctx, item.itemName, 260);
-      ctx.fillText(nameLines[0] || item.itemName, 75, y + 20);
+      ctx.font = 'bold 13px "Noto Sans Devanagari", system-ui, sans-serif';
+      if (isMultiLine) {
+        ctx.fillText(nameLines[0], 75, y + 18);
+        const secondLine = nameLines.length > 2 ? `${nameLines[1]}…` : nameLines[1];
+        ctx.fillText(secondLine, 75, y + 33);
+      } else {
+        ctx.fillText(nameLines[0] || item.itemName, 75, y + 22);
+      }
 
       if (item.variantLabel) {
         ctx.fillStyle = '#7C3AED';
         ctx.font = '11px "Noto Sans Devanagari", system-ui, sans-serif';
-        ctx.fillText(`• ${item.variantLabel}`, 75, y + 36);
+        const labelY = isMultiLine ? y + 46 : y + 36;
+        ctx.fillText(`• ${item.variantLabel}`, 75, labelY);
       }
 
       // Quantity & Unit
@@ -627,3 +648,4 @@ export function generateReceiptText(receipt: SanitizedReceipt): string {
 
   return lines.join('\n');
 }
+

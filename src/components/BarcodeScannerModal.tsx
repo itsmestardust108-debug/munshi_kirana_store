@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Camera, X, Check, Barcode as BarcodeIcon, Plus, AlertCircle } from 'lucide-react';
+import { Camera, X, Check, Barcode as BarcodeIcon, Plus, AlertCircle, Loader2 } from 'lucide-react';
 import type { InventoryRecord } from '../data/db';
 import { roundPaise } from '../domain/money';
+import { lookupBarcodeProduct } from '../integrations/barcodeLookup';
 
 interface BarcodeScannerModalProps {
   isOpen: boolean;
@@ -61,6 +62,8 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
   const [newItemPrice, setNewItemPrice] = useState('');
   const [newItemUnit, setNewItemUnit] = useState('pc');
   const [isRegistering, setIsRegistering] = useState(false);
+  const [isLookingUp, setIsLookingUp] = useState(false);
+  const [lookupMessage, setLookupMessage] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isOpen) {
@@ -68,6 +71,8 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
       setUnseenBarcode(null);
       setManualCode('');
       setLastScannedCode(null);
+      setIsLookingUp(false);
+      setLookupMessage(null);
       return;
     }
 
@@ -140,11 +145,38 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
         setLastScannedCode(null);
       }, 1500);
     } else {
-      // Unseen item! Pause camera loop and open quick register
+      // Unseen item! Pause camera loop and query live online & offline catalog
       setUnseenBarcode(cleanCode);
       setNewItemName('');
       setNewItemPrice('');
       setNewItemUnit('pc');
+      setIsLookingUp(true);
+      setLookupMessage(isHi ? 'सामान का नाम खोज रहे हैं...' : 'Looking up product name...');
+
+      lookupBarcodeProduct(cleanCode)
+        .then((info) => {
+          setIsLookingUp(false);
+          if (info && info.name) {
+            setNewItemName(info.name);
+            if (info.unit) setNewItemUnit(info.unit);
+            if (info.typicalPrice) setNewItemPrice(String(info.typicalPrice));
+            setLookupMessage(
+              info.source === 'curated-offline'
+                ? (isHi ? '✅ किराना कैटलॉग से पहचाना गया' : '✅ Identified from Kirana Catalog')
+                : (isHi ? '✅ ऑनलाइन कैटलॉग से नाम मिला' : '✅ Name found from Online Catalog')
+            );
+          } else {
+            setLookupMessage(
+              isHi
+                ? 'ℹ️ बारकोड में केवल 13 अंक होते हैं। दुकान की दर एक बार सेट करें।'
+                : 'ℹ️ Barcodes only store 13 digits. Enter your shop rate once.'
+            );
+          }
+        })
+        .catch(() => {
+          setIsLookingUp(false);
+          setLookupMessage(null);
+        });
     }
   };
 
@@ -259,9 +291,19 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
                 </p>
               </div>
 
-              <div className="bg-white p-2.5 rounded-xl border border-amber-200 text-xs font-mono font-bold text-slate-700">
-                बारकोड / Barcode: <span className="text-mk-purple text-sm">{unseenBarcode}</span>
+              <div className="bg-white p-2.5 rounded-xl border border-amber-200 text-xs font-mono font-bold text-slate-700 flex items-center justify-between">
+                <div>
+                  बारकोड / Barcode: <span className="text-mk-purple text-sm">{unseenBarcode}</span>
+                </div>
+                {isLookingUp && <Loader2 className="w-4 h-4 text-mk-purple animate-spin" />}
               </div>
+
+              {lookupMessage && (
+                <div className="bg-purple-50 text-mk-purple border border-purple-200 px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-2">
+                  {isLookingUp ? <Loader2 className="w-3.5 h-3.5 flex-shrink-0 animate-spin" /> : null}
+                  <span>{lookupMessage}</span>
+                </div>
+              )}
 
               <form onSubmit={handleRegisterNewItem} className="space-y-3">
                 <div>
@@ -393,3 +435,4 @@ export const BarcodeScannerModal: React.FC<BarcodeScannerModalProps> = ({
     </div>
   );
 };
+

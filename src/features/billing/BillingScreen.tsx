@@ -61,6 +61,7 @@ export const BillingScreen: React.FC<BillingScreenProps> = ({ language }) => {
   const [inventory, setInventory] = useState<InventoryRecord[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [historicalBills, setHistoricalBills] = useState<any[]>([]);
+  const [isOwnerConfirmedTagline, setIsOwnerConfirmedTagline] = useState(false);
 
   // Active Bill State
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
@@ -127,6 +128,11 @@ export const BillingScreen: React.FC<BillingScreenProps> = ({ language }) => {
         const bills = await db.bills.toArray();
         setHistoricalBills(bills);
 
+        const shop = await db.shops.toCollection().first();
+        if (shop?.isOwnerConfirmedTagline) {
+          setIsOwnerConfirmedTagline(true);
+        }
+
         // 1. Always restore saved draft first
         const draft = await db.drafts.get('active_bill_draft');
         if (draft?.data) {
@@ -163,6 +169,18 @@ export const BillingScreen: React.FC<BillingScreenProps> = ({ language }) => {
             if (draft.data.activeInput.rateInput) setRateInput(draft.data.activeInput.rateInput);
             if (draft.data.activeInput.qtyInput) setQtyInput(draft.data.activeInput.qtyInput);
             if (draft.data.activeInput.selectedUnit) setSelectedUnit(draft.data.activeInput.selectedUnit);
+            if (draft.data.activeInput.selectedInventoryItem) {
+              setSelectedInventoryItem(draft.data.activeInput.selectedInventoryItem);
+              setCompatibleUnits(getCompatibleUnits(draft.data.activeInput.selectedInventoryItem.baseUnit));
+            } else if (draft.data.activeInput.itemQuery) {
+              const matched = inv.find(
+                (i) => i.itemName.toLowerCase() === draft.data.activeInput.itemQuery.toLowerCase()
+              );
+              if (matched) {
+                setSelectedInventoryItem(matched);
+                setCompatibleUnits(getCompatibleUnits(matched.baseUnit));
+              }
+            }
           }
         }
 
@@ -199,6 +217,7 @@ export const BillingScreen: React.FC<BillingScreenProps> = ({ language }) => {
             rateInput,
             qtyInput,
             selectedUnit,
+            selectedInventoryItem,
           },
           updatedAt: new Date().toISOString(),
         },
@@ -221,6 +240,7 @@ export const BillingScreen: React.FC<BillingScreenProps> = ({ language }) => {
     rateInput,
     qtyInput,
     selectedUnit,
+    selectedInventoryItem,
     isHydrated,
   ]);
 
@@ -493,7 +513,12 @@ export const BillingScreen: React.FC<BillingScreenProps> = ({ language }) => {
           isNewVariant: Boolean(selectedInventoryItem && selectedInventoryItem.sellingPrice !== rate),
         };
 
-        currentBasket.push(autoAddedItem);
+        if (editingIndex !== null && editingIndex >= 0 && editingIndex < currentBasket.length) {
+          currentBasket[editingIndex] = autoAddedItem;
+          setEditingIndex(null);
+        } else {
+          currentBasket.push(autoAddedItem);
+        }
         setBasket(currentBasket);
         setItemQuery('');
         setSelectedInventoryItem(null);
@@ -604,11 +629,16 @@ export const BillingScreen: React.FC<BillingScreenProps> = ({ language }) => {
         await db.drafts.delete('active_bill_draft');
       });
 
-      // Generate public receipt share token
+      // Generate public receipt share token (only expose web link if successfully hosted)
       try {
-        const { shareUrl } = await createPublicReceiptShare(newBill);
-        setPublicShareUrl(shareUrl);
+        const shareRes = await createPublicReceiptShare(newBill);
+        if (shareRes.isHosted) {
+          setPublicShareUrl(shareRes.shareUrl);
+        } else {
+          setPublicShareUrl(undefined);
+        }
       } catch (e) {
+        setPublicShareUrl(undefined);
         console.warn('Local share token generation fallback:', e);
       }
 
@@ -1137,6 +1167,7 @@ export const BillingScreen: React.FC<BillingScreenProps> = ({ language }) => {
         onClose={() => setSavedBill(null)}
         language={language}
         publicShareUrl={publicShareUrl || undefined}
+        isOwnerConfirmedTagline={isOwnerConfirmedTagline}
         onNewBill={() => {
           setSavedBill(null);
           setBasket([]);

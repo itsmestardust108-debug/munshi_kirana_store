@@ -56,7 +56,7 @@ export interface DraftRecord {
 export interface SyncOutboxRecord {
   id: string;
   shopId: string;
-  entityType: 'bill' | 'inventory' | 'customer' | 'charge' | 'repayment' | 'reversal' | 'attachment';
+  entityType: 'bill' | 'inventory' | 'customer' | 'charge' | 'repayment' | 'reversal' | 'attachment' | 'receipt_share';
   entityId: string;
   operation: 'insert' | 'update' | 'delete';
   payload: any;

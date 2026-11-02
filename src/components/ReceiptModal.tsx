@@ -15,6 +15,7 @@ import {
 import type { Language } from '../i18n';
 import { translations } from '../i18n';
 import type { Bill } from '../domain/billing';
+import { db } from '../data/db';
 import type { SanitizedReceipt } from '../domain/receipt';
 import { buildSanitizedReceipt } from '../domain/receipt';
 import {
@@ -58,21 +59,42 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
   const [actionNotice, setActionNotice] = useState<{ text: string; type: 'info' | 'success' | 'warn' } | null>(null);
 
   // Cached files to preserve user activation for Web Share API
+  // Specifically keyed to the active bill ID to prevent cross-customer cached file leakage
+  const [cachedBillId, setCachedBillId] = useState<string | null>(null);
   const [cachedImageFile, setCachedImageFile] = useState<File | null>(null);
   const [cachedPdfFile, setCachedPdfFile] = useState<File | null>(null);
+  const [effectiveTaglineConfirmed, setEffectiveTaglineConfirmed] = useState(isOwnerConfirmedTagline);
 
   useEffect(() => {
+    if (isOwnerConfirmedTagline) {
+      setEffectiveTaglineConfirmed(true);
+    } else {
+      db.shops.toCollection().first().then((shop) => {
+        if (shop?.isOwnerConfirmedTagline) {
+          setEffectiveTaglineConfirmed(true);
+        } else {
+          setEffectiveTaglineConfirmed(false);
+        }
+      });
+    }
+  }, [isOwnerConfirmedTagline]);
+
+  useEffect(() => {
+    // Immediately clear previous cached files whenever the selected bill changes
+    setReceipt(null);
+    setCachedBillId(null);
+    setCachedImageFile(null);
+    setCachedPdfFile(null);
+    setActionNotice(null);
+
     if (!bill) {
-      setReceipt(null);
-      setCachedImageFile(null);
-      setCachedPdfFile(null);
-      setActionNotice(null);
       return;
     }
 
+    const currentBillId = bill.id;
     const sanitized = buildSanitizedReceipt(bill, null, {
       isHindi: isHi,
-      useOwnerConfirmedTagline: isOwnerConfirmedTagline,
+      useOwnerConfirmedTagline: effectiveTaglineConfirmed,
     });
     setReceipt(sanitized);
 
@@ -81,10 +103,16 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
     async function preheatFiles() {
       try {
         const { file: imgFile } = await generateReceiptImage(sanitized);
-        if (!isCancelled) setCachedImageFile(imgFile);
+        if (!isCancelled && bill && bill.id === currentBillId) {
+          setCachedImageFile(imgFile);
+          setCachedBillId(currentBillId);
+        }
 
         const { file: pdfFile } = await generateReceiptPdf(sanitized);
-        if (!isCancelled) setCachedPdfFile(pdfFile);
+        if (!isCancelled && bill && bill.id === currentBillId) {
+          setCachedPdfFile(pdfFile);
+          setCachedBillId(currentBillId);
+        }
       } catch (e) {
         console.warn('Receipt file pre-generation postponed:', e);
       }
@@ -94,7 +122,7 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
     return () => {
       isCancelled = true;
     };
-  }, [bill, isHi, isOwnerConfirmedTagline]);
+  }, [bill?.id, isHi, effectiveTaglineConfirmed]);
 
   if (!isOpen || !bill || !receipt) return null;
 
@@ -105,11 +133,12 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
     setActionNotice({ text: 'फोटो तैयार हो रही है...', type: 'info' });
 
     try {
-      let fileToShare = cachedImageFile;
+      let fileToShare = (cachedBillId === bill.id && cachedImageFile) ? cachedImageFile : null;
       if (!fileToShare) {
         const res = await generateReceiptImage(receipt);
         fileToShare = res.file;
         setCachedImageFile(fileToShare);
+        setCachedBillId(bill.id);
       }
 
       const shareRes = await shareReceiptFile(fileToShare, receipt);
@@ -137,11 +166,12 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
     setActionNotice({ text: 'PDF तैयार हो रहा है...', type: 'info' });
 
     try {
-      let fileToShare = cachedPdfFile;
+      let fileToShare = (cachedBillId === bill.id && cachedPdfFile) ? cachedPdfFile : null;
       if (!fileToShare) {
         const res = await generateReceiptPdf(receipt);
         fileToShare = res.file;
         setCachedPdfFile(fileToShare);
+        setCachedBillId(bill.id);
       }
 
       const shareRes = await shareReceiptFile(fileToShare, receipt);
@@ -167,11 +197,12 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
     if (!receipt) return;
     setIsGenerating(true);
     try {
-      let fileToDownload = cachedImageFile;
+      let fileToDownload = (cachedBillId === bill.id && cachedImageFile) ? cachedImageFile : null;
       if (!fileToDownload) {
         const res = await generateReceiptImage(receipt);
         fileToDownload = res.file;
         setCachedImageFile(fileToDownload);
+        setCachedBillId(bill.id);
       }
       downloadFileLocally(fileToDownload);
       setActionNotice({ text: 'रसीद फोटो डाउनलोड हो गई है ✅', type: 'success' });
@@ -187,11 +218,12 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
     if (!receipt) return;
     setIsGenerating(true);
     try {
-      let fileToDownload = cachedPdfFile;
+      let fileToDownload = (cachedBillId === bill.id && cachedPdfFile) ? cachedPdfFile : null;
       if (!fileToDownload) {
         const res = await generateReceiptPdf(receipt);
         fileToDownload = res.file;
         setCachedPdfFile(fileToDownload);
+        setCachedBillId(bill.id);
       }
       downloadFileLocally(fileToDownload);
       setActionNotice({ text: 'रसीद PDF डाउनलोड हो गया है ✅', type: 'success' });
@@ -522,3 +554,4 @@ export const ReceiptModal: React.FC<ReceiptModalProps> = ({
     </div>
   );
 };
+

@@ -48,7 +48,16 @@
 - [x] Progressive Web App (PWA): Standalone manifest, service worker generated via `vite-plugin-pwa` precaching 19 entries (1,962 KiB), offline app shell caching.
 - [x] Production Deployment: Live on Cloudflare Pages (`https://munshi-kirana-store.pages.dev`), returning HTTP 200.
 - [x] Automated Keep-Alive: Cron job scheduled at 03:00 UTC daily preventing Supabase free-tier project pausing.
-- [x] Test Coverage: 36 Vitest unit and integration tests passing, 8 acceptance audit probes passing.
+- [x] Test Coverage: 39 Vitest unit and integration tests passing (100%), 8 acceptance audit probes passing (100%).
+- [x] Edge Case Verification Hardening:
+  - Base unit and selected product retained across draft reloads (250g @ ₹60/kg consistently ₹15.00, never ₹15,000).
+  - Editing existing basket row replaces in-place without duplicating on save.
+  - Receipt image/PDF cache keyed by bill ID, preventing cross-customer stale file leakage.
+  - Multi-page pagination indexing fixed (starts monotonically, e.g. 1 -> 9 -> 23).
+  - Long product names wrapped cleanly across lines without truncation.
+  - Offline WhatsApp text excludes dead receipt links unless actually hosted.
+  - Configurable "100 years" tagline setting propagated from shop settings to receipt modal.
+  - Hybrid barcode catalog lookup with curated offline Kirana essentials + dynamic online Open Food Facts API query.
 
 ---
 

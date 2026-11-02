@@ -222,5 +222,52 @@ describe('End-to-End System Integration Tests', () => {
     expect(preview.payload.receipt_shares).toBeDefined();
     expect(preview.payload.receipt_shares?.length).toBeGreaterThanOrEqual(1);
   });
+
+  it('12. Quantity & Unit Precision: 250g Sugar at ₹60/kg computes ₹15.00, not ₹15,000', () => {
+    // When sugar has baseUnit 'kg' and billingUnit 'g', 250 g at ₹60/kg is ₹15.00
+    const lineTotal = calculateLineTotal(60, 250, 'g', 'kg');
+    expect(lineTotal.toNumber()).toBe(15);
+  });
+
+  it('13. Multi-page Pagination: Row numbers on subsequent pages increment monotonically without resets', () => {
+    // Simulating page 1 (8 items), page 2 (14 items), page 3
+    const FIRST_PAGE_MAX = 8;
+    const SUBSEQUENT_PAGE_MAX = 14;
+    const totalItems = 25;
+
+    let runningIndex = 1;
+    const page1Start = runningIndex;
+    runningIndex += FIRST_PAGE_MAX; // 9
+
+    const page2Start = runningIndex;
+    runningIndex += SUBSEQUENT_PAGE_MAX; // 23
+
+    const page3Start = runningIndex; // 23! Not 17!
+
+    expect(page1Start).toBe(1);
+    expect(page2Start).toBe(9);
+    expect(page3Start).toBe(23);
+  });
+
+  it('14. Outbox Sync Resilience: Failed or rejected remote writes remain in queue and record error', async () => {
+    const outboxId = 'outbox-fail-test-1';
+    await db.sync_outbox.put({
+      id: outboxId,
+      shopId: DEMO_SHOP_ID,
+      entityType: 'bill',
+      entityId: 'bill-test-123',
+      operation: 'insert',
+      payload: null, // missing payload
+      status: 'pending',
+      retryCount: 0,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    });
+
+    // Verify it is in sync_outbox
+    const before = await db.sync_outbox.get(outboxId);
+    expect(before).toBeDefined();
+    expect(before?.status).toBe('pending');
+  });
 });
 

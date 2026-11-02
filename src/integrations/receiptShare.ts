@@ -155,3 +155,4 @@ export function buildWhatsAppTextShareUrl(
     formattedPhone: norm.display,
   };
 }
+

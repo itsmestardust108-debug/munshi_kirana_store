@@ -31,6 +31,7 @@ export const BillHistoryScreen: React.FC<BillHistoryScreenProps> = ({ language }
   const [selectedBill, setSelectedBill] = useState<Bill | null>(null);
   const [isReceiptModalOpen, setIsReceiptModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [isOwnerConfirmedTagline, setIsOwnerConfirmedTagline] = useState(false);
 
   // Void Modal
   const [isVoidModalOpen, setIsVoidModalOpen] = useState(false);
@@ -39,6 +40,10 @@ export const BillHistoryScreen: React.FC<BillHistoryScreenProps> = ({ language }
   const loadBills = async () => {
     const all = await db.bills.orderBy('createdAt').reverse().toArray();
     setBills(all);
+    const shop = await db.shops.toCollection().first();
+    if (shop?.isOwnerConfirmedTagline) {
+      setIsOwnerConfirmedTagline(true);
+    }
     if (id) {
       const found = all.find((b) => b.id === id);
       if (found) setSelectedBill(found);
@@ -314,6 +319,7 @@ export const BillHistoryScreen: React.FC<BillHistoryScreenProps> = ({ language }
         isOpen={isReceiptModalOpen}
         onClose={() => setIsReceiptModalOpen(false)}
         language={language}
+        isOwnerConfirmedTagline={isOwnerConfirmedTagline}
       />
     </div>
   );
