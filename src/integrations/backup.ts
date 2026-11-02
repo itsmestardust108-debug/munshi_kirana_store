@@ -13,6 +13,8 @@ export interface BackupPayload {
   ledger_reversals: any[];
   attachments: any[];
   inventory_attachments: any[];
+  drafts?: any[];
+  receipt_shares?: any[];
 }
 
 export interface EncryptedBackupEnvelope {
@@ -82,6 +84,8 @@ export async function createEncryptedBackup(passphrase: string): Promise<string>
   const ledger_reversals = await db.ledger_reversals.toArray();
   const attachments = await db.attachments.toArray();
   const inventory_attachments = await db.inventory_attachments.toArray();
+  const drafts = await db.drafts.toArray();
+  const receipt_shares = await db.receipt_shares.toArray();
 
   const payload: BackupPayload = {
     formatVersion: '1.0',
@@ -96,6 +100,8 @@ export async function createEncryptedBackup(passphrase: string): Promise<string>
     ledger_reversals,
     attachments,
     inventory_attachments,
+    drafts,
+    receipt_shares,
   };
 
   const payloadJson = JSON.stringify(payload);
@@ -142,6 +148,50 @@ export interface RestorePreview {
   payload: BackupPayload;
 }
 
+export function validateBackupPayload(payload: any): void {
+  if (!payload || typeof payload !== 'object') {
+    throw new Error('अमान्य बैकअप फाइल (Invalid backup payload)');
+  }
+  if (payload.formatVersion !== '1.0') {
+    throw new Error('असमर्थित बैकअप संस्करण (Unsupported backup format version)');
+  }
+  if (!payload.shop || typeof payload.shop !== 'object' || !payload.shop.id || !payload.shop.name) {
+    throw new Error('अमान्य दुकान विवरण (Invalid shop details in backup)');
+  }
+  if (
+    !Array.isArray(payload.inventory) ||
+    !Array.isArray(payload.customers) ||
+    !Array.isArray(payload.bills)
+  ) {
+    throw new Error('अमान्य बैकअप संरचना (Missing required core tables in backup)');
+  }
+
+  // Relational integrity check: Customers
+  const customerIds = new Set(
+    (payload.customers || []).map((c: any) => c?.id).filter(Boolean)
+  );
+
+  if (Array.isArray(payload.credit_charges) && payload.credit_charges.length > 0) {
+    for (const charge of payload.credit_charges) {
+      if (!charge.customerId || !customerIds.has(charge.customerId)) {
+        throw new Error(
+          `अमान्य वित्तीय संदर्भ: उधार चार्ज ${charge.id} का ग्राहक मौजूद नहीं है (Orphaned charge without customer)`
+        );
+      }
+    }
+  }
+
+  if (Array.isArray(payload.repayments) && payload.repayments.length > 0) {
+    for (const repay of payload.repayments) {
+      if (!repay.customerId || !customerIds.has(repay.customerId)) {
+        throw new Error(
+          `अमान्य वित्तीय संदर्भ: भुगतान ${repay.id} का ग्राहक मौजूद नहीं है (Orphaned repayment without customer)`
+        );
+      }
+    }
+  }
+}
+
 /**
  * Decrypts and validates an encrypted backup string without modifying the DB
  */
@@ -180,9 +230,7 @@ export async function verifyAndPreviewBackup(
   const dec = new TextDecoder();
   const payload: BackupPayload = JSON.parse(dec.decode(decryptedBytes));
 
-  if (!payload || payload.formatVersion !== '1.0') {
-    throw new Error('असमर्थित बैकअप संस्करण (Unsupported backup format version)');
-  }
+  validateBackupPayload(payload);
 
   return {
     valid: true,
@@ -204,12 +252,8 @@ export async function verifyAndPreviewBackup(
  * Restores data transactionally into Dexie
  */
 export async function executeRestore(payload: BackupPayload): Promise<void> {
-  if (!payload || payload.formatVersion !== '1.0') {
-    throw new Error('असमर्थित बैकअप संस्करण (Unsupported backup format version)');
-  }
-  if (!Array.isArray(payload.bills) || !Array.isArray(payload.inventory)) {
-    throw new Error('अमान्य बैकअप संरचना (Invalid backup structure)');
-  }
+  // Validate schema and relational integrity BEFORE starting transaction
+  validateBackupPayload(payload);
 
   await db.transaction(
     'rw',
@@ -224,6 +268,8 @@ export async function executeRestore(payload: BackupPayload): Promise<void> {
       db.ledger_reversals,
       db.attachments,
       db.inventory_attachments,
+      db.drafts,
+      db.receipt_shares,
     ],
     async () => {
       // Clear existing records
@@ -238,6 +284,8 @@ export async function executeRestore(payload: BackupPayload): Promise<void> {
         db.ledger_reversals.clear(),
         db.attachments.clear(),
         db.inventory_attachments.clear(),
+        db.drafts.clear(),
+        db.receipt_shares.clear(),
       ]);
 
       // Bulk insert restored payload
@@ -251,6 +299,8 @@ export async function executeRestore(payload: BackupPayload): Promise<void> {
       if (payload.ledger_reversals?.length) await db.ledger_reversals.bulkAdd(payload.ledger_reversals);
       if (payload.attachments?.length) await db.attachments.bulkAdd(payload.attachments);
       if (payload.inventory_attachments?.length) await db.inventory_attachments.bulkAdd(payload.inventory_attachments);
+      if (payload.drafts?.length) await db.drafts.bulkAdd(payload.drafts);
+      if (payload.receipt_shares?.length) await db.receipt_shares.bulkAdd(payload.receipt_shares);
     }
   );
 }

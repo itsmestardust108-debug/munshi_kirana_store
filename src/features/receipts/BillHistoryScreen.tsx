@@ -15,6 +15,7 @@ import { db } from '../../data/db';
 import type { Bill } from '../../domain/billing';
 import { formatINR } from '../../domain/money';
 import { buildBillWhatsAppLink } from '../../integrations/whatsapp';
+import { ReceiptModal } from '../../components/ReceiptModal';
 
 interface BillHistoryScreenProps {
   language: Language;
@@ -28,6 +29,7 @@ export const BillHistoryScreen: React.FC<BillHistoryScreenProps> = ({ language }
 
   const [bills, setBills] = useState<Bill[]>([]);
   const [selectedBill, setSelectedBill] = useState<Bill | null>(null);
+  const [isReceiptModalOpen, setIsReceiptModalOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
   // Void Modal
@@ -193,34 +195,18 @@ export const BillHistoryScreen: React.FC<BillHistoryScreenProps> = ({ language }
           <div className="pt-2 space-y-2">
             <button
               type="button"
-              onClick={() => {
-                const link = buildBillWhatsAppLink(
-                  selectedBill,
-                  selectedBill.settlement.customerPhone,
-                  'मुंशी किराना स्टोर'
-                );
-                if (link.url) window.open(link.url, '_blank');
-              }}
-              className="w-full min-h-touch bg-[#25D366] hover:bg-[#20bd5a] text-white font-extrabold text-base rounded-2xl flex items-center justify-center gap-2 shadow"
+              onClick={() => setIsReceiptModalOpen(true)}
+              className="w-full min-h-touch bg-mk-purple hover:bg-mk-purple-dark text-white font-black text-base rounded-2xl flex items-center justify-center gap-2 shadow-md shadow-purple-900/20 active:scale-[0.98] transition-all"
             >
-              <Share2 className="w-5 h-5" />
-              <span>{t.sendWhatsApp}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => window.print()}
-              className="w-full min-h-touch bg-slate-100 hover:bg-slate-200 text-mk-text font-bold text-sm rounded-2xl flex items-center justify-center gap-2"
-            >
-              <Printer className="w-4 h-4" />
-              <span>{t.printOrPdf}</span>
+              <Share2 className="w-5 h-5 stroke-[2.5]" />
+              <span>रसीद शेयर व डाउनलोड करें (Share, PDF & Image)</span>
             </button>
 
             {selectedBill.status !== 'voided' && (
               <button
                 type="button"
                 onClick={() => setIsVoidModalOpen(true)}
-                className="w-full py-3 bg-red-50 hover:bg-red-100 text-red-600 font-bold text-sm rounded-2xl flex items-center justify-center gap-1.5 transition-colors"
+                className="w-full min-h-[46px] bg-red-50 hover:bg-red-100 text-red-600 font-bold text-sm rounded-2xl flex items-center justify-center gap-1.5 transition-colors"
               >
                 <RotateCcw className="w-4 h-4" />
                 <span>बिल रद्द करें (Void Bill)</span>
@@ -321,6 +307,14 @@ export const BillHistoryScreen: React.FC<BillHistoryScreenProps> = ({ language }
           </div>
         </div>
       )}
+
+      {/* Branded Digital Receipt & Export Modal */}
+      <ReceiptModal
+        bill={selectedBill}
+        isOpen={isReceiptModalOpen}
+        onClose={() => setIsReceiptModalOpen(false)}
+        language={language}
+      />
     </div>
   );
 };

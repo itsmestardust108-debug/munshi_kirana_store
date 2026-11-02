@@ -8,6 +8,7 @@ export interface ShopRecord {
   name: string;
   taglineHi?: string;
   taglineEn?: string;
+  isOwnerConfirmedTagline?: boolean;
   ownerName?: string;
   phone?: string;
   address?: string;
@@ -95,7 +96,7 @@ export class MunsiDatabase extends Dexie {
     super('MunsiKiranaDB');
     this.version(1).stores({
       shops: 'id, isDemo',
-      inventory: 'id, shopId, itemName, variantLabel, hindiName, sellingPrice, isActive, updatedAt, *aliases, *hindiKeywords',
+      inventory: 'id, shopId, itemName, variantLabel, hindiName, sellingPrice, barcode, isActive, updatedAt, *aliases, *hindiKeywords',
       customers: 'id, shopId, name, phone, isActive, createdAt',
       bills: 'id, shopId, receiptNumber, businessDate, grandTotal, status, operationId, createdAt, syncedAt',
       credit_charges: 'id, shopId, customerId, transactionDate, linkedBillId, isReversed, createdAt',
@@ -127,7 +128,7 @@ export async function seedDemoDataIfEmpty(): Promise<void> {
     name: 'मुंशी किराना स्टोर (Munsi Kirana Store)',
     taglineHi: 'परिवार की दुकान — शुद्धता एवं विश्वास',
     taglineEn: 'Family Kirana Store — Purity & Trust',
-    ownerName: 'मुंशी जी (Dadaji)',
+    ownerName: 'श्री मुंशी सेठ जी (Shri Munshi Seth Ji)',
     phone: '9876500000',
     address: 'मेन बाजार, दुकान नं. 12',
     isDemo: true,

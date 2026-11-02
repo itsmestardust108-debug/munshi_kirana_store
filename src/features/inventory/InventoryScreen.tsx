@@ -45,6 +45,7 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({ language }) =>
   const [sellingPriceInput, setSellingPriceInput] = useState('');
   const [costPriceInput, setCostPriceInput] = useState('');
   const [unitInput, setUnitInput] = useState('pc');
+  const [barcodeInput, setBarcodeInput] = useState('');
 
   // Wholesale Upload State
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -105,6 +106,7 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({ language }) =>
       itemName: nameInput.trim(),
       hindiName: hindiNameInput.trim() || undefined,
       variantLabel: variantInput.trim() || undefined,
+      barcode: barcodeInput.trim() || undefined,
       sellingPrice: parseFloat(sellingPriceInput),
       costPrice: costPriceInput ? parseFloat(costPriceInput) : null,
       baseUnit: unitInput,
@@ -135,6 +137,7 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({ language }) =>
     setAliasesInput('');
     setSellingPriceInput('');
     setCostPriceInput('');
+    setBarcodeInput('');
     setUnitInput('pc');
   };
 
@@ -143,6 +146,7 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({ language }) =>
     setNameInput(item.itemName);
     setHindiNameInput(item.hindiName || '');
     setVariantInput(item.variantLabel || '');
+    setBarcodeInput(item.barcode || '');
     setAliasesInput((item.aliases || []).join(', '));
     setSellingPriceInput(String(item.sellingPrice));
     setCostPriceInput(item.costPrice != null ? String(item.costPrice) : '');
@@ -377,6 +381,11 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({ language }) =>
                   {item.hindiName && (
                     <span className="text-xs text-mk-muted">{item.hindiName}</span>
                   )}
+                  {item.barcode && (
+                    <span className="px-1.5 py-0.5 bg-amber-50 text-amber-800 text-[10px] font-mono font-bold rounded border border-amber-200">
+                      #{item.barcode}
+                    </span>
+                  )}
                 </div>
               </div>
 
@@ -507,6 +516,19 @@ export const InventoryScreen: React.FC<InventoryScreenProps> = ({ language }) =>
                   className="w-full min-h-[46px] px-3 font-extrabold text-lg rounded-2xl bg-amber-50/50 border border-amber-200"
                 />
               </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-mk-muted mb-1">
+                {isHi ? 'बारकोड / Barcode (वैकल्पिक)' : 'Barcode (Optional)'}
+              </label>
+              <input
+                type="text"
+                value={barcodeInput}
+                onChange={(e) => setBarcodeInput(e.target.value)}
+                placeholder="8901030383749"
+                className="w-full min-h-[46px] px-3 font-mono font-bold text-base rounded-2xl bg-slate-50 border border-mk-line"
+              />
             </div>
 
             <div>

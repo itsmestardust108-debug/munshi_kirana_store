@@ -12,6 +12,7 @@ import { CustomerStatementScreen } from '../features/ledger/CustomerStatementScr
 import { BillHistoryScreen } from '../features/receipts/BillHistoryScreen';
 import { PublicReceiptScreen } from '../features/receipts/PublicReceiptScreen';
 import { ReportsScreen } from '../features/reports/ReportsScreen';
+import { SettingsScreen } from '../features/settings/SettingsScreen';
 
 function AppLayout({
   children,
@@ -65,7 +66,7 @@ export function App() {
           <Route path="/bills" element={<BillHistoryScreen language={language} />} />
           <Route path="/bills/:id" element={<BillHistoryScreen language={language} />} />
           <Route path="/reports" element={<ReportsScreen language={language} />} />
-          <Route path="/settings" element={<ReportsScreen language={language} />} />
+          <Route path="/settings" element={<SettingsScreen language={language} />} />
           {/* Public customer invoice links */}
           <Route path="/r/:shareToken" element={<PublicReceiptScreen />} />
           <Route path="/bill/:id" element={<PublicReceiptScreen />} />

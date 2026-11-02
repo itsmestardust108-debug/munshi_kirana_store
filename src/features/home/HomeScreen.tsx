@@ -115,7 +115,32 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({ language }) => {
   };
 
   return (
-    <div className="p-4 space-y-5">
+    <div className="p-4 space-y-4">
+      {/* Dadaji Memorial & Blessing Banner */}
+      <div className="bg-gradient-to-r from-purple-900 via-mk-purple to-purple-950 text-white rounded-3xl p-3.5 shadow-md border border-purple-800/50 flex items-center gap-3.5">
+        <div className="w-16 h-16 rounded-2xl bg-amber-100 border-2 border-amber-400 overflow-hidden flex-shrink-0 shadow-md ring-2 ring-amber-400/30">
+          <img
+            src="/dadaji-photo.jpg"
+            alt="श्री मुंशी सेठ जी (Shri Munshi Seth Ji)"
+            className="w-full h-full object-cover object-top"
+            onError={(e) => {
+              (e.target as HTMLImageElement).src = '/favicon.svg';
+            }}
+          />
+        </div>
+        <div>
+          <div className="inline-block bg-amber-400 text-purple-950 text-[10px] font-black uppercase px-2 py-0.5 rounded-full tracking-wider mb-1">
+            {isHi ? 'पावन स्मृति' : 'In Loving Memory'}
+          </div>
+          <h2 className="text-lg font-black leading-tight text-amber-100">
+            {isHi ? 'श्री मुंशी सेठ जी' : 'Shri Munshi Seth Ji'}
+          </h2>
+          <p className="text-xs text-purple-200 font-medium mt-0.5">
+            {isHi ? 'मुंशी किराना स्टोर — शुद्धता एवं ईमानदारी' : 'Munsi Kirana Store — Purity & Trust'}
+          </p>
+        </div>
+      </div>
+
       {/* Search & Voice Rate Lookup Card */}
       <div className="bg-white p-3.5 rounded-3xl border border-mk-line shadow-sm space-y-2.5">
         <div className="flex items-center gap-2 bg-slate-50 border border-mk-line rounded-2xl px-3 py-1 focus-within:border-mk-purple focus-within:ring-2 focus-within:ring-mk-soft transition-all">

@@ -24,25 +24,25 @@ export const Header: React.FC<HeaderProps> = ({
       <div className="flex items-center justify-between gap-3">
         {/* Brand & Dadaji Logo */}
         <div className="flex items-center gap-3">
-          <div className="w-12 h-12 rounded-full bg-[#FFF0D6] border-2 border-amber-300 text-mk-purple flex items-center justify-center font-bold text-2xl shadow-inner flex-shrink-0 overflow-hidden">
+          <div className="w-12 h-12 rounded-full bg-[#FFF0D6] border-2 border-amber-300 text-mk-purple flex items-center justify-center font-bold text-2xl shadow-inner flex-shrink-0 overflow-hidden ring-2 ring-amber-400/40">
             <img
-              src="/favicon.svg"
-              alt="मुंशी जी (Dadaji)"
-              className="w-full h-full object-cover"
+              src="/dadaji-photo.jpg"
+              alt="श्री मुंशी सेठ जी (Shri Munshi Seth Ji)"
+              className="w-full h-full object-cover object-top"
               onError={(e) => {
-                // Fallback to monogram if image fails
-                (e.target as HTMLElement).style.display = 'none';
+                // Fallback to SVG badge if photo fails
+                (e.target as HTMLImageElement).src = '/favicon.svg';
               }}
             />
-            <span className="font-extrabold text-mk-purple text-lg">मुं</span>
+            <span className="font-extrabold text-mk-purple text-lg hidden">मुं</span>
           </div>
 
           <div>
             <h1 className="text-xl font-bold tracking-tight leading-tight">
               {customTitle || (isHi ? 'मुंशी किराना स्टोर' : 'Munsi Kirana Store')}
             </h1>
-            <p className="text-xs text-purple-200 font-medium">
-              {customSubtitle || (isHi ? 'परिवार की दुकान — शुद्धता एवं विश्वास' : 'Family Kirana Store — Purity & Trust')}
+            <p className="text-xs text-amber-200 font-semibold flex items-center gap-1">
+              <span>{isHi ? 'श्री मुंशी सेठ जी का आशीर्वाद' : 'Blessings of Shri Munshi Seth Ji'}</span>
             </p>
           </div>
         </div>

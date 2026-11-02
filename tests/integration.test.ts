@@ -4,7 +4,7 @@ import { calculateBillTotals, calculatePaymentSettlement } from '../src/domain/b
 import { buildCustomerLedgerSummary, allocateRepayment } from '../src/domain/ledger';
 import { searchInventoryItems } from '../src/domain/matching';
 import { calculateLineTotal } from '../src/domain/units';
-import { createEncryptedBackup, verifyAndPreviewBackup, executeRestore } from '../src/integrations/backup';
+import { createEncryptedBackup, verifyAndPreviewBackup, executeRestore, validateBackupPayload } from '../src/integrations/backup';
 
 describe('End-to-End System Integration Tests', () => {
   beforeEach(async () => {
@@ -111,6 +111,116 @@ describe('End-to-End System Integration Tests', () => {
 
     // Verify rejection with wrong passphrase
     await expect(verifyAndPreviewBackup(encryptedJson, 'WrongPassword')).rejects.toThrow();
+  });
+
+  it('8. Barcode Scanning: Matches items by exact barcode or barcode search query', async () => {
+    const barcodeItem = {
+      id: 'inv-barcode-test',
+      shopId: DEMO_SHOP_ID,
+      itemName: 'Tata Salt 1kg',
+      sellingPrice: 28,
+      baseUnit: 'pkt',
+      barcode: '8901030383821',
+      isActive: true,
+      createdAt: '2026-11-01',
+      updatedAt: '2026-11-01',
+      version: 1,
+    };
+    await db.inventory.put(barcodeItem);
+
+    const items = await db.inventory.toArray();
+    const match = searchInventoryItems(items, '8901030383821');
+    expect(match.length).toBeGreaterThan(0);
+    expect(match[0].item.barcode).toBe('8901030383821');
+    expect(match[0].item.itemName).toBe('Tata Salt 1kg');
+    expect(match[0].matchedField).toBe('barcode');
+  });
+
+  it('9. Customer Ledger: Repayment exceeding balance correctly computes advance credit and allocations', () => {
+    const cust = {
+      id: 'cust-advance-1',
+      shopId: 's1',
+      name: 'Radhe Shyam',
+      isActive: true,
+      createdAt: '2026-11-01',
+      updatedAt: '2026-11-01',
+    };
+    // ₹550 outstanding charge
+    const charges = [
+      { id: 'c1', shopId: 's1', customerId: 'cust-advance-1', amount: 550, transactionDate: '01-11-2026', createdAt: '2026-11-01' },
+    ];
+    // ₹1000 repayment
+    const repayments = [
+      { id: 'r1', shopId: 's1', customerId: 'cust-advance-1', amount: 1000, paymentDate: '02-11-2026', method: 'cash' as const, createdAt: '2026-11-02' },
+    ];
+
+    const summary = buildCustomerLedgerSummary(cust, charges, repayments, []);
+    // Outstanding balance should be 0 when overpaid
+    expect(summary.outstandingBalance.toNumber()).toBe(0);
+    // Advance credit should be ₹450
+    expect(summary.advanceCredit.toNumber()).toBe(450);
+
+    // Allocations allocate up to the charge amount (550) to c1, with 450 unallocated (advance)
+    const allocResult = allocateRepayment(1000, charges);
+    expect(allocResult.allocations.length).toBe(1);
+    expect(allocResult.allocations[0].chargeId).toBe('c1');
+    expect(allocResult.allocations[0].amount.toNumber()).toBe(550);
+    expect(allocResult.unallocatedAmount.toNumber()).toBe(450);
+  });
+
+  it('10. Backup Validation: Rejects malformed versions and orphaned records before mutation', () => {
+    // 10a. Unsupported version
+    expect(() => validateBackupPayload({
+      formatVersion: '2.0',
+      shop: { id: 's1', name: 'Test Shop' },
+      inventory: [],
+      customers: [],
+      bills: [],
+    })).toThrow(/असमर्थित बैकअप संस्करण/);
+
+    // 10b. Missing required core table
+    expect(() => validateBackupPayload({
+      formatVersion: '1.0',
+      shop: { id: 's1', name: 'Test Shop' },
+      inventory: [],
+      // missing customers
+    })).toThrow(/अमान्य बैकअप संरचना/);
+
+    // 10c. Orphaned financial references (charge for non-existent customer)
+    expect(() => validateBackupPayload({
+      formatVersion: '1.0',
+      shop: { id: 's1', name: 'Test Shop' },
+      inventory: [],
+      customers: [{ id: 'cust-1', name: 'Customer 1' }],
+      bills: [],
+      credit_charges: [{ id: 'chg-1', customerId: 'cust-ghost', amount: 500 }],
+    })).toThrow(/अमान्य वित्तीय संदर्भ/);
+  });
+
+  it('11. Backup Integrity: Preserves drafts and receipt_shares in backup payload', async () => {
+    await db.drafts.put({
+      key: 'active_bill_draft',
+      data: [{ itemName: 'Draft Item', quantity: 2 }],
+      updatedAt: new Date().toISOString(),
+    });
+    await db.receipt_shares.put({
+      id: 'share-1',
+      billId: 'bill-1',
+      token: 'tok-123',
+      tokenHash: 'hash-123',
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 86400000).toISOString(),
+      isRevoked: false,
+    });
+
+    const passphrase = 'IntegrityCheckPassword!';
+    const encrypted = await createEncryptedBackup(passphrase);
+    const preview = await verifyAndPreviewBackup(encrypted, passphrase);
+
+    expect(preview.payload.drafts).toBeDefined();
+    expect(preview.payload.drafts?.length).toBeGreaterThanOrEqual(1);
+    expect(preview.payload.receipt_shares).toBeDefined();
+    expect(preview.payload.receipt_shares?.length).toBeGreaterThanOrEqual(1);
   });
 });
 

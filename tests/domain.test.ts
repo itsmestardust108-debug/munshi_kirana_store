@@ -1,11 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import Decimal from 'decimal.js';
 import { calculateSingleInterest, calculateGrandInterest, parseDate, formatTypedDate } from '../src/domain/interest';
-import { calculateLineTotal, toBaseQuantity } from '../src/domain/units';
+import { calculateLineTotal, toBaseQuantity, validateQuantity, formatRateWithUnit, getUnitDisplayLabel } from '../src/domain/units';
 import { roundPaise, formatINR } from '../src/domain/money';
 import { searchInventoryItems } from '../src/domain/matching';
 import { calculatePaymentSettlement } from '../src/domain/billing';
 import { buildCustomerLedgerSummary, allocateRepayment } from '../src/domain/ledger';
+import { buildSanitizedReceipt } from '../src/domain/receipt';
+import { generateReceiptText } from '../src/integrations/receiptRenderer';
 
 describe('Authoritative Byaj Arithmetic Fixtures (Section 11)', () => {
   it('Fixture 1: ₹10,000 @ 2% from 01-01-2024 to 01-01-2025 -> 1 year, interest ₹2,400, final ₹12,400', () => {
@@ -307,5 +309,194 @@ describe('Customer Khata & Repayment Allocation (Scenario 7)', () => {
     expect(summary.totalCharges.toNumber()).toBe(750);
     expect(summary.totalRepayments.toNumber()).toBe(0); // Excluded due to reversal
     expect(summary.outstandingBalance.toNumber()).toBe(750);
+  });
+
+  describe('Quantity Validation & Rate Unit Correctness', () => {
+    it('1. Sugar: 250 g at ₹60/kg calculates ₹15.00 with rate unit /kg (never /g)', () => {
+      const v = validateQuantity(250, 'g', 'kg');
+      expect(v.valid).toBe(true);
+
+      const lineTotal = calculateLineTotal(60, 250, 'g', 'kg');
+      expect(lineTotal.toNumber()).toBe(15);
+
+      const rateDisplay = formatRateWithUnit(60, 'kg', true);
+      expect(rateDisplay).toBe('₹60.00/किलो');
+      expect(rateDisplay).not.toContain('/ग्राम');
+    });
+
+    it('2. Sugar: 2.5 kg at ₹59.50/kg calculates ₹148.75', () => {
+      const v = validateQuantity(2.5, 'kg', 'kg');
+      expect(v.valid).toBe(true);
+
+      const lineTotal = calculateLineTotal(59.50, 2.5, 'kg', 'kg');
+      expect(lineTotal.toNumber()).toBe(148.75);
+
+      const rateDisplay = formatRateWithUnit(59.50, 'kg', false);
+      expect(rateDisplay).toBe('₹59.50/kg');
+    });
+
+    it('3. Pieces: 2 pieces at ₹30/piece = ₹60; Rejects fractional pieces for discrete units', () => {
+      const validPc = validateQuantity(2, 'pc', 'pc');
+      expect(validPc.valid).toBe(true);
+
+      const total = calculateLineTotal(30, 2, 'pc', 'pc');
+      expect(total.toNumber()).toBe(60);
+
+      // Rejects fractional pieces (e.g. 2.5 pieces of soap)
+      const invalidFraction = validateQuantity(2.5, 'pc', 'pc');
+      expect(invalidFraction.valid).toBe(false);
+      expect(invalidFraction.error).toContain('नग (Piece) की मात्रा पूर्ण संख्या होनी चाहिए');
+    });
+
+    it('4. Rejects zero, negative, non-finite, and incompatible unit quantities', () => {
+      expect(validateQuantity(0, 'kg', 'kg').valid).toBe(false);
+      expect(validateQuantity(-5, 'kg', 'kg').valid).toBe(false);
+      expect(validateQuantity(NaN, 'kg', 'kg').valid).toBe(false);
+      expect(validateQuantity(Infinity, 'kg', 'kg').valid).toBe(false);
+
+      // Incompatible units: cannot convert ml (volume) to kg (weight)
+      const incomp = validateQuantity(500, 'ml', 'kg');
+      expect(incomp.valid).toBe(false);
+      expect(incomp.error).toContain('असंगत इकाई');
+
+      // Do not treat packs as pieces without defined conversion
+      const packToPc = validateQuantity(1, 'pack', 'pc');
+      expect(packToPc.valid).toBe(false);
+    });
+  });
+
+  describe('Sanitized Receipt Model & Truthful WhatsApp Text', () => {
+    it('5. Builds sanitized receipt model with Dadaji branding, stripping private cost data', () => {
+      const sampleBill: any = {
+        id: 'bill-test-001',
+        shopId: 's1',
+        receiptNumber: 'MKS-20261102-123',
+        businessDate: '02-11-2026',
+        items: [
+          {
+            id: 'it-1',
+            itemName: 'चीनी (Sugar)',
+            variantLabel: 'Loose',
+            billingUnit: 'g',
+            baseUnit: 'kg',
+            ratePerBaseUnit: 60,
+            quantity: 250,
+            baseQuantity: 0.25,
+            lineTotal: 15,
+            costPriceSnapshot: 48, // Private wholesale cost
+          },
+          {
+            id: 'it-2',
+            itemName: 'Liril Soap',
+            billingUnit: 'pc',
+            baseUnit: 'pc',
+            ratePerBaseUnit: 40,
+            quantity: 2,
+            baseQuantity: 2,
+            lineTotal: 80,
+            costPriceSnapshot: 32, // Private wholesale cost
+          },
+        ],
+        subtotal: 95,
+        discount: 5,
+        grandTotal: 90,
+        settlement: {
+          method: 'split',
+          cashReceived: 50,
+          upiReceived: 0,
+          changeReturned: 0,
+          creditDue: 40,
+          customerName: 'Shyam Sundar',
+          customerPhone: '9876543210',
+        },
+        status: 'completed',
+        createdAt: '2026-11-02T10:30:00Z',
+        operationId: 'op-test',
+      };
+
+      const receipt = buildSanitizedReceipt(sampleBill, null, {
+        isHindi: true,
+        useOwnerConfirmedTagline: false,
+      });
+
+      // Verify Dadaji photograph & branding
+      expect(receipt.photoUrl).toBe('/dadaji-photo.jpg');
+      expect(receipt.shopName).toContain('मुंशी किराना स्टोर');
+      expect(receipt.ownerBlessing).toContain('श्री मुंशी सेठ जी');
+      expect(receipt.tagline).toBe('आपकी अपनी भरोसेमंद किराना दुकान');
+
+      // Verify customer details
+      expect(receipt.customerName).toBe('Shyam Sundar');
+      expect(receipt.customerPhone).toBe('9876543210');
+
+      // Invariant: Zero cost price snapshots or wholesale data present in receipt
+      expect((receipt as any).costPriceSnapshot).toBeUndefined();
+      expect((receipt.items[0] as any).costPriceSnapshot).toBeUndefined();
+      expect((receipt.items[1] as any).costPriceSnapshot).toBeUndefined();
+
+      // Verify line items and accurate rate unit
+      expect(receipt.items[0].formattedQuantity).toBe('250 ग्राम');
+      expect(receipt.items[0].formattedRate).toBe('₹60.00/किलो');
+      expect(receipt.items[0].formattedLineTotal).toBe('₹15.00');
+
+      // Verify totals
+      expect(receipt.subtotal).toBe(95);
+      expect(receipt.discount).toBe(5);
+      expect(receipt.grandTotal).toBe(90);
+      expect(receipt.balanceDue).toBe(40);
+
+      // Verify generated text format
+      const text = generateReceiptText(receipt);
+      expect(text).toContain('मुंशी किराना स्टोर');
+      expect(text).toContain('चीनी (Sugar)');
+      expect(text).toContain('250 ग्राम × ₹60.00/किलो = *₹15.00*');
+      expect(text).toContain('कुल राशि (Grand Total): ₹90.00');
+      expect(text).toContain('बाकी उधार (Balance Due): ₹40.00');
+      expect(text).not.toContain('48'); // Wholesale cost never leaked
+    });
+
+    it('6. Owner-confirmed historical claim switch updates tagline cleanly', () => {
+      const sampleBill: any = {
+        id: 'bill-tagline',
+        receiptNumber: 'MKS-001',
+        businessDate: '02-11-2026',
+        items: [],
+        subtotal: 0,
+        discount: 0,
+        grandTotal: 0,
+        settlement: { method: 'cash', cashReceived: 0, changeReturned: 0, upiReceived: 0, creditDue: 0 },
+        status: 'completed',
+        createdAt: '2026-11-02T10:00:00Z',
+      };
+
+      const unconfirmed = buildSanitizedReceipt(sampleBill, null, { useOwnerConfirmedTagline: false });
+      expect(unconfirmed.tagline).toBe('आपकी अपनी भरोसेमंद किराना दुकान');
+
+      const confirmed = buildSanitizedReceipt(sampleBill, null, { useOwnerConfirmedTagline: true });
+      expect(confirmed.tagline).toBe('100 वर्षों से आपके विश्वास का साथ');
+    });
+
+    it('7. Displays prominent VOID banner when bill is voided', () => {
+      const voidedBill: any = {
+        id: 'bill-void',
+        receiptNumber: 'MKS-VOID',
+        businessDate: '02-11-2026',
+        items: [],
+        subtotal: 100,
+        discount: 0,
+        grandTotal: 100,
+        settlement: { method: 'cash', cashReceived: 100, changeReturned: 0, upiReceived: 0, creditDue: 0 },
+        status: 'voided',
+        voidReason: 'गलती से कटा था',
+        createdAt: '2026-11-02T10:00:00Z',
+      };
+
+      const receipt = buildSanitizedReceipt(voidedBill);
+      expect(receipt.isVoided).toBe(true);
+      expect(receipt.voidReason).toBe('गलती से कटा था');
+
+      const text = generateReceiptText(receipt);
+      expect(text).toContain('रद्द बिल / VOID BILL: गलती से कटा था');
+    });
   });
 });

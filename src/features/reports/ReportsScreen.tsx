@@ -219,14 +219,25 @@ export const ReportsScreen: React.FC<ReportsScreenProps> = ({ language }) => {
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={() => loadMetrics()}
-          className="w-11 h-11 rounded-2xl bg-white border border-mk-line flex items-center justify-center text-mk-muted hover:text-mk-purple hover:bg-slate-50 active:scale-95 transition-all shadow-sm"
-          title="रिफ्रेश करें"
-        >
-          <RefreshCw className="w-4 h-4" />
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => navigate('/settings')}
+            className="px-3 py-2.5 rounded-2xl bg-mk-soft text-mk-purple hover:bg-mk-soft/80 font-bold text-xs flex items-center gap-1.5 transition-all shadow-sm"
+            title="दुकान सेटिंग व फोन लिंक"
+          >
+            <Smartphone className="w-4 h-4" />
+            <span>{isHi ? 'सेटिंग व फोन' : 'Settings'}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => loadMetrics()}
+            className="w-11 h-11 rounded-2xl bg-white border border-mk-line flex items-center justify-center text-mk-muted hover:text-mk-purple hover:bg-slate-50 active:scale-95 transition-all shadow-sm"
+            title="रिफ्रेश करें"
+          >
+            <RefreshCw className="w-4 h-4" />
+          </button>
+        </div>
       </div>
 
       {/* Daily Overview Metric Cards Grid */}

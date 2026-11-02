@@ -9,6 +9,7 @@ export interface MatchableItem {
   hindiName?: string;
   hindiKeywords?: string[];
   aliases?: string[];
+  barcode?: string;
   sellingPrice: number | string;
   costPrice?: number | string | null;
   baseUnit: string;
@@ -29,7 +30,7 @@ export function normalizeSearchText(text: string): string {
 export interface MatchResult<T> {
   item: T;
   score: number; // Higher is better match
-  matchedField: 'name_prefix' | 'alias_prefix' | 'name_substr' | 'alias_substr' | 'variant';
+  matchedField: 'barcode' | 'name_prefix' | 'alias_prefix' | 'name_substr' | 'alias_substr' | 'variant';
 }
 
 /**
@@ -59,8 +60,13 @@ export function searchInventoryItems<T extends MatchableItem>(
     let bestScore = 0;
     let bestField: MatchResult<T>['matchedField'] = 'name_substr';
 
+    // 0. Exact match on barcode (Highest priority)
+    if (item.barcode && normalizeSearchText(item.barcode) === query) {
+      bestScore = 200;
+      bestField = 'barcode';
+    }
     // 1. Exact match on name or hindi name
-    if (normName === query || normHindi === query) {
+    else if (normName === query || normHindi === query) {
       bestScore = 100;
       bestField = 'name_prefix';
     }

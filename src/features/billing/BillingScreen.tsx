@@ -16,13 +16,21 @@ import {
   UserPlus,
   ChevronRight,
   AlertCircle,
+  Barcode as BarcodeIcon,
 } from 'lucide-react';
 import type { Language } from '../../i18n';
 import { translations } from '../../i18n';
 import { db, seedDemoDataIfEmpty, type InventoryRecord } from '../../data/db';
 import type { Customer } from '../../domain/ledger';
 import { searchInventoryItems, type MatchResult } from '../../domain/matching';
-import { calculateLineTotal, getCompatibleUnits, toBaseQuantity } from '../../domain/units';
+import {
+  calculateLineTotal,
+  getCompatibleUnits,
+  toBaseQuantity,
+  validateQuantity,
+  formatRateWithUnit,
+  getUnitDisplayLabel,
+} from '../../domain/units';
 import {
   calculateBillTotals,
   calculatePaymentSettlement,
@@ -35,8 +43,10 @@ import { formatINR } from '../../domain/money';
 import { getTodayKolkataDate } from '../../domain/interest';
 import { buildBillWhatsAppLink } from '../../integrations/whatsapp';
 import { InfoModal, type InfoModalItem } from '../../components/InfoModal';
+import { BarcodeScannerModal } from '../../components/BarcodeScannerModal';
+import { ReceiptModal } from '../../components/ReceiptModal';
 import { VoiceSearchEngine } from '../../integrations/speech';
-import { createPublicReceiptShare } from '../../integrations/syncEngine';
+import { createPublicReceiptShare, queueOutboxSync } from '../../integrations/syncEngine';
 
 interface BillingScreenProps {
   language: Language;
@@ -91,6 +101,10 @@ export const BillingScreen: React.FC<BillingScreenProps> = ({ language }) => {
   const [newCustName, setNewCustName] = useState('');
   const [newCustPhone, setNewCustPhone] = useState('');
 
+  // Barcode Scanner Modal
+  const [isBarcodeModalOpen, setIsBarcodeModalOpen] = useState(false);
+  const [barcodeScanToast, setBarcodeScanToast] = useState<string | null>(null);
+
   // Voice Search
   const [isListening, setIsListening] = useState(false);
   const voiceEngineRef = useRef<VoiceSearchEngine | null>(null);
@@ -113,22 +127,48 @@ export const BillingScreen: React.FC<BillingScreenProps> = ({ language }) => {
         const bills = await db.bills.toArray();
         setHistoricalBills(bills);
 
-        // Check preselected item from navigate state (e.g. from HomeScreen search)
+        // 1. Always restore saved draft first
+        const draft = await db.drafts.get('active_bill_draft');
+        if (draft?.data) {
+          if (draft.data.items?.length) {
+            setBasket(draft.data.items);
+          }
+          if (draft.data.customerId) {
+            const foundCust = custs.find((c) => c.id === draft.data.customerId);
+            if (foundCust) setSelectedCustomer(foundCust);
+          }
+          if (draft.data.discount) {
+            setDiscount(String(draft.data.discount));
+          }
+          if (draft.data.paymentMethod) {
+            setPaymentMethod(draft.data.paymentMethod);
+          }
+          if (draft.data.cashTendered) {
+            setCashTendered(draft.data.cashTendered);
+          }
+          if (draft.data.cashPortion) {
+            setCashPortion(draft.data.cashPortion);
+          }
+          if (draft.data.upiPortion) {
+            setUpiPortion(draft.data.upiPortion);
+          }
+          if (draft.data.creditPortion) {
+            setCreditPortion(draft.data.creditPortion);
+          }
+          if (draft.data.isOwnerConfirmedUpi !== undefined) {
+            setIsOwnerConfirmedUpi(draft.data.isOwnerConfirmedUpi);
+          }
+          if (draft.data.activeInput && !(location.state && (location.state as any).preselectItem)) {
+            if (draft.data.activeInput.itemQuery) setItemQuery(draft.data.activeInput.itemQuery);
+            if (draft.data.activeInput.rateInput) setRateInput(draft.data.activeInput.rateInput);
+            if (draft.data.activeInput.qtyInput) setQtyInput(draft.data.activeInput.qtyInput);
+            if (draft.data.activeInput.selectedUnit) setSelectedUnit(draft.data.activeInput.selectedUnit);
+          }
+        }
+
+        // 2. Check preselected item from navigate state (e.g. from HomeScreen search)
         if (location.state && (location.state as any).preselectItem) {
           handleSelectItem((location.state as any).preselectItem);
-        } else {
-          // Restore Draft
-          const draft = await db.drafts.get('active_bill_draft');
-          if (draft?.data?.items?.length) {
-            setBasket(draft.data.items);
-            if (draft.data.customerId) {
-              const foundCust = custs.find((c) => c.id === draft.data.customerId);
-              if (foundCust) setSelectedCustomer(foundCust);
-            }
-            if (draft.data.discount) {
-              setDiscount(String(draft.data.discount));
-            }
-          }
         }
       } finally {
         setIsHydrated(true);
@@ -141,13 +181,25 @@ export const BillingScreen: React.FC<BillingScreenProps> = ({ language }) => {
   useEffect(() => {
     if (!isHydrated) return;
 
-    if (basket.length > 0) {
+    if (basket.length > 0 || itemQuery.trim() || selectedCustomer || parseFloat(discount) > 0) {
       db.drafts.put({
         key: 'active_bill_draft',
         data: {
           items: basket,
           customerId: selectedCustomer?.id,
           discount,
+          paymentMethod,
+          cashTendered,
+          cashPortion,
+          upiPortion,
+          creditPortion,
+          isOwnerConfirmedUpi,
+          activeInput: {
+            itemQuery,
+            rateInput,
+            qtyInput,
+            selectedUnit,
+          },
           updatedAt: new Date().toISOString(),
         },
         updatedAt: new Date().toISOString(),
@@ -155,7 +207,22 @@ export const BillingScreen: React.FC<BillingScreenProps> = ({ language }) => {
     } else {
       db.drafts.delete('active_bill_draft');
     }
-  }, [basket, selectedCustomer, discount, isHydrated]);
+  }, [
+    basket,
+    selectedCustomer,
+    discount,
+    paymentMethod,
+    cashTendered,
+    cashPortion,
+    upiPortion,
+    creditPortion,
+    isOwnerConfirmedUpi,
+    itemQuery,
+    rateInput,
+    qtyInput,
+    selectedUnit,
+    isHydrated,
+  ]);
 
   // Voice Search init
   useEffect(() => {
@@ -222,10 +289,80 @@ export const BillingScreen: React.FC<BillingScreenProps> = ({ language }) => {
     }
   };
 
+  const handleItemScannedFromBarcode = (item: InventoryRecord) => {
+    const defaultRate = Number(item.sellingPrice);
+    const existingIndex = basket.findIndex((b) => b.inventoryItemId === item.id);
+
+    if (existingIndex >= 0) {
+      const updated = [...basket];
+      const newQty = updated[existingIndex].quantity + 1;
+      const newLineTotal = calculateLineTotal(
+        updated[existingIndex].ratePerBaseUnit,
+        newQty,
+        updated[existingIndex].billingUnit,
+        updated[existingIndex].baseUnit
+      ).toNumber();
+
+      updated[existingIndex] = {
+        ...updated[existingIndex],
+        quantity: newQty,
+        baseQuantity: toBaseQuantity(newQty, updated[existingIndex].billingUnit, updated[existingIndex].baseUnit).toNumber(),
+        lineTotal: newLineTotal,
+      };
+      setBasket(updated);
+    } else {
+      const lineTotal = calculateLineTotal(defaultRate, 1, item.baseUnit, item.baseUnit).toNumber();
+      const newItem: BillItemSnapshot = {
+        id: `item-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+        inventoryItemId: item.id,
+        itemName: item.itemName,
+        variantLabel: item.variantLabel,
+        billingUnit: item.baseUnit,
+        baseUnit: item.baseUnit,
+        defaultSellingPrice: defaultRate,
+        ratePerBaseUnit: defaultRate,
+        isRateOverridden: false,
+        quantity: 1,
+        baseQuantity: 1,
+        lineTotal,
+      };
+      setBasket((prev) => [...prev, newItem]);
+    }
+
+    setBarcodeScanToast(`${item.itemName} बिल में जोड़ा गया (+1)`);
+    setTimeout(() => setBarcodeScanToast(null), 3000);
+    handleSelectItem(item);
+  };
+
+  const handleRegisterNewBarcodeItem = async (data: {
+    barcode: string;
+    itemName: string;
+    sellingPrice: number;
+    baseUnit: string;
+  }): Promise<InventoryRecord> => {
+    const now = new Date().toISOString();
+    const newRecord: InventoryRecord = {
+      id: typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `item-${Date.now()}`,
+      shopId: 'demo-munsi-kirana-001',
+      itemName: data.itemName,
+      barcode: data.barcode,
+      sellingPrice: data.sellingPrice,
+      baseUnit: data.baseUnit,
+      isActive: true,
+      createdAt: now,
+      updatedAt: now,
+      version: 1,
+    };
+
+    await db.inventory.add(newRecord);
+    await queueOutboxSync('inventory', newRecord.id, 'insert', newRecord);
+    setInventory((prev) => [...prev, newRecord]);
+    return newRecord;
+  };
+
   // Add Item to Basket
   const handleAddOrUpdateItem = () => {
     const rate = parseFloat(rateInput);
-    const qty = parseFloat(qtyInput);
 
     if (!itemQuery.trim()) {
       alert('सामान का नाम दर्ज करें');
@@ -235,12 +372,15 @@ export const BillingScreen: React.FC<BillingScreenProps> = ({ language }) => {
       alert('अमान्य दर (Invalid rate)');
       return;
     }
-    if (isNaN(qty) || qty <= 0) {
-      alert('अमान्य मात्रा (Invalid quantity)');
+
+    const baseUnit = selectedInventoryItem ? selectedInventoryItem.baseUnit : selectedUnit;
+    const qtyValidation = validateQuantity(qtyInput, selectedUnit, baseUnit);
+    if (!qtyValidation.valid) {
+      alert(qtyValidation.error || 'अमान्य मात्रा (Invalid quantity)');
       return;
     }
 
-    const baseUnit = selectedInventoryItem ? selectedInventoryItem.baseUnit : selectedUnit;
+    const qty = parseFloat(qtyInput);
     const defaultRate = selectedInventoryItem ? Number(selectedInventoryItem.sellingPrice) : rate;
     const isOverridden = defaultRate !== rate;
 
@@ -319,7 +459,50 @@ export const BillingScreen: React.FC<BillingScreenProps> = ({ language }) => {
 
   // Save Bill
   const handleSaveBill = async () => {
-    if (basket.length === 0) {
+    if (isSubmitting) return; // Prevent double-tap duplicate saves
+
+    let currentBasket = [...basket];
+
+    // Prevent unadded item edits from silently disappearing when saving
+    if (itemQuery.trim()) {
+      const baseUnit = selectedInventoryItem ? selectedInventoryItem.baseUnit : selectedUnit;
+      const qtyValidation = validateQuantity(qtyInput, selectedUnit, baseUnit);
+      const rate = parseFloat(rateInput);
+      if (qtyValidation.valid && !isNaN(rate) && rate >= 0) {
+        const qty = parseFloat(qtyInput);
+        const defaultRate = selectedInventoryItem ? Number(selectedInventoryItem.sellingPrice) : rate;
+        const isOverridden = defaultRate !== rate;
+        const baseQty = toBaseQuantity(qty, selectedUnit, baseUnit).toNumber();
+        const lineTot = calculateLineTotal(rate, qty, selectedUnit, baseUnit).toNumber();
+
+        const autoAddedItem: BillItemSnapshot = {
+          id: `line-${Date.now()}`,
+          inventoryItemId: selectedInventoryItem?.id,
+          itemName: selectedInventoryItem ? selectedInventoryItem.itemName : itemQuery.trim(),
+          variantLabel: selectedInventoryItem?.variantLabel,
+          billingUnit: selectedUnit,
+          baseUnit,
+          defaultSellingPrice: defaultRate,
+          ratePerBaseUnit: rate,
+          isRateOverridden: isOverridden,
+          quantity: qty,
+          baseQuantity: baseQty,
+          lineTotal: lineTot,
+          costPriceSnapshot: selectedInventoryItem?.costPrice != null ? Number(selectedInventoryItem.costPrice) : null,
+          isUnseenItem: !selectedInventoryItem,
+          isNewVariant: Boolean(selectedInventoryItem && selectedInventoryItem.sellingPrice !== rate),
+        };
+
+        currentBasket.push(autoAddedItem);
+        setBasket(currentBasket);
+        setItemQuery('');
+        setSelectedInventoryItem(null);
+        setRateInput('');
+        setQtyInput('1');
+      }
+    }
+
+    if (currentBasket.length === 0) {
       setSubmitError('बिल में कम से कम एक सामान होना आवश्यक है');
       return;
     }
@@ -327,9 +510,20 @@ export const BillingScreen: React.FC<BillingScreenProps> = ({ language }) => {
     setIsSubmitting(true);
     setSubmitError(null);
 
+    // Compute effective totals
+    const effectiveTotals = calculateBillTotals(
+      currentBasket.map((b) => ({
+        ratePerBaseUnit: b.ratePerBaseUnit,
+        quantity: b.quantity,
+        billingUnit: b.billingUnit,
+        baseUnit: b.baseUnit,
+      })),
+      parseFloat(discount) || 0
+    );
+
     // Calculate settlement
-    const settleRes = calculatePaymentSettlement(grandTotal, paymentMethod, {
-      cashTendered: cashTendered ? parseFloat(cashTendered) : grandTotal,
+    const settleRes = calculatePaymentSettlement(effectiveTotals.grandTotal, paymentMethod, {
+      cashTendered: cashTendered ? parseFloat(cashTendered) : effectiveTotals.grandTotal,
       cashPortion: cashPortion ? parseFloat(cashPortion) : 0,
       upiPortion: upiPortion ? parseFloat(upiPortion) : 0,
       creditPortion: creditPortion ? parseFloat(creditPortion) : 0,
@@ -353,10 +547,10 @@ export const BillingScreen: React.FC<BillingScreenProps> = ({ language }) => {
         shopId: 'demo-munsi-kirana-001',
         receiptNumber: receiptNo,
         businessDate,
-        items: basket,
-        subtotal: subtotal.toNumber(),
+        items: currentBasket,
+        subtotal: effectiveTotals.subtotal.toNumber(),
         discount: parseFloat(discount) || 0,
-        grandTotal: grandTotal.toNumber(),
+        grandTotal: effectiveTotals.grandTotal.toNumber(),
         settlement: {
           ...settleRes.settlement,
           customerName: selectedCustomer?.name,
@@ -537,10 +731,29 @@ export const BillingScreen: React.FC<BillingScreenProps> = ({ language }) => {
               className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 transition-colors ${
                 isListening ? 'bg-red-500 text-white animate-pulse' : 'bg-slate-200 text-slate-700'
               }`}
+              title={isHi ? 'बोलकर खोजें' : 'Voice Search'}
             >
               <Mic className="w-5 h-5" />
             </button>
+
+            <button
+              type="button"
+              onClick={() => setIsBarcodeModalOpen(true)}
+              className="w-10 h-10 rounded-xl bg-amber-100 hover:bg-amber-200 active:bg-amber-300 text-amber-900 flex items-center justify-center flex-shrink-0 transition-colors shadow-sm"
+              title={isHi ? 'बारकोड स्कैन करें' : 'Scan Barcode'}
+              aria-label="Scan barcode"
+            >
+              <BarcodeIcon className="w-5 h-5" />
+            </button>
           </div>
+
+          {/* Barcode Quick Scan Toast */}
+          {barcodeScanToast && (
+            <div className="mt-2 p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-800 text-xs font-bold flex items-center justify-between animate-fadeIn">
+              <span>{barcodeScanToast}</span>
+              <CheckCircle className="w-4 h-4 text-emerald-600 flex-shrink-0" />
+            </div>
+          )}
 
           {/* Search Dropdown */}
           {searchResults.length > 0 && (
@@ -587,40 +800,40 @@ export const BillingScreen: React.FC<BillingScreenProps> = ({ language }) => {
         )}
 
         {/* Rate, Quantity, Unit & Line Total Grid */}
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-3 gap-2.5">
           {/* Rate */}
           <div>
-            <label className="block text-[11px] font-bold text-mk-muted mb-1">{t.rate}</label>
+            <label className="block text-xs font-bold text-mk-muted mb-1">{t.rate} (₹)</label>
             <input
               type="number"
               step="0.5"
               value={rateInput}
               onChange={(e) => setRateInput(e.target.value)}
               placeholder="0.00"
-              className="w-full min-h-[50px] px-3 font-extrabold text-lg rounded-2xl bg-slate-50 border border-mk-line text-mk-text focus:outline-none focus:border-mk-purple"
+              className="w-full min-h-[56px] px-3 font-extrabold text-xl rounded-2xl bg-slate-50 border border-mk-line text-mk-text focus:outline-none focus:border-mk-purple"
             />
           </div>
 
           {/* Quantity */}
           <div>
-            <label className="block text-[11px] font-bold text-mk-muted mb-1">{t.qty}</label>
+            <label className="block text-xs font-bold text-mk-muted mb-1">{t.qty} (मात्रा)</label>
             <input
               type="number"
               step="0.05"
               value={qtyInput}
               onChange={(e) => setQtyInput(e.target.value)}
               placeholder="1"
-              className="w-full min-h-[50px] px-3 font-extrabold text-lg rounded-2xl bg-slate-50 border border-mk-line text-mk-text focus:outline-none focus:border-mk-purple"
+              className="w-full min-h-[56px] px-3 font-extrabold text-xl rounded-2xl bg-slate-50 border border-mk-line text-mk-text focus:outline-none focus:border-mk-purple"
             />
           </div>
 
           {/* Unit */}
           <div>
-            <label className="block text-[11px] font-bold text-mk-muted mb-1">{t.unit}</label>
+            <label className="block text-xs font-bold text-mk-muted mb-1">{t.unit} (इकाई)</label>
             <select
               value={selectedUnit}
               onChange={(e) => setSelectedUnit(e.target.value)}
-              className="w-full min-h-[50px] px-2 font-bold text-base rounded-2xl bg-slate-50 border border-mk-line text-mk-text focus:outline-none focus:border-mk-purple"
+              className="w-full min-h-[56px] px-2.5 font-bold text-base rounded-2xl bg-slate-50 border border-mk-line text-mk-text focus:outline-none focus:border-mk-purple"
             >
               {compatibleUnits.length > 0 ? (
                 compatibleUnits.map((u) => (
@@ -641,11 +854,19 @@ export const BillingScreen: React.FC<BillingScreenProps> = ({ language }) => {
           </div>
         </div>
 
-        {/* Live Line Total Calculation & Add Button */}
-        <div className="pt-2 flex items-center justify-between gap-3">
-          <div>
-            <span className="text-xs text-mk-muted block">{t.lineTotal}</span>
-            <span className="text-xl font-black text-mk-text">
+        {/* Obvious Live Rate Unit Formula Feedback */}
+        <div className="p-3 bg-purple-50/80 rounded-2xl border border-purple-200/80 flex items-center justify-between text-xs font-semibold text-slate-800">
+          <div className="space-y-0.5">
+            <span className="font-bold text-mk-purple text-[11px] uppercase tracking-wider block">
+              {isHi ? 'मात्रा व दर स्पष्ट विवरण' : 'Calculation Breakdown'}
+            </span>
+            <span className="font-black text-sm text-mk-text">
+              {qtyInput || '0'} {getUnitDisplayLabel(selectedUnit, isHi)} × {formatRateWithUnit(rateInput || '0', selectedInventoryItem ? selectedInventoryItem.baseUnit : selectedUnit, isHi)}
+            </span>
+          </div>
+          <div className="text-right">
+            <span className="text-[11px] text-mk-muted block">{t.lineTotal}</span>
+            <span className="text-2xl font-black text-mk-purple">
               {formatINR(
                 calculateLineTotal(
                   parseFloat(rateInput) || 0,
@@ -656,13 +877,16 @@ export const BillingScreen: React.FC<BillingScreenProps> = ({ language }) => {
               )}
             </span>
           </div>
+        </div>
 
+        {/* Add / Update Button */}
+        <div className="pt-1 flex items-center justify-end">
           <button
             type="button"
             onClick={handleAddOrUpdateItem}
-            className="flex-1 min-h-touch bg-mk-purple hover:bg-mk-purple-dark text-white font-bold rounded-2xl flex items-center justify-center gap-1.5 shadow-md shadow-mk-purple/20 active:scale-[0.98] transition-all"
+            className="w-full min-h-touch bg-mk-purple hover:bg-mk-purple-dark text-white font-black text-lg rounded-2xl flex items-center justify-center gap-2 shadow-md shadow-mk-purple/20 active:scale-[0.98] transition-all"
           >
-            <Plus className="w-5 h-5 stroke-[2.5]" />
+            <Plus className="w-6 h-6 stroke-[2.5]" />
             <span>{editingIndex !== null ? 'बदलाव सुरक्षित करें' : t.addItemToBasket}</span>
           </button>
         </div>
@@ -712,9 +936,15 @@ export const BillingScreen: React.FC<BillingScreenProps> = ({ language }) => {
                 <div className="min-w-0 flex-1">
                   <h4 className="font-bold text-base text-mk-text truncate">{item.itemName}</h4>
                   <p className="text-xs text-mk-muted mt-0.5">
-                    {item.quantity} {item.billingUnit} × ₹{item.ratePerBaseUnit}
+                    <span className="font-bold text-slate-800">
+                      {item.quantity} {getUnitDisplayLabel(item.billingUnit, isHi)}
+                    </span>
+                    {' × '}
+                    <span>{formatRateWithUnit(item.ratePerBaseUnit, item.baseUnit, isHi)}</span>
                     {item.isRateOverridden && (
-                      <span className="ml-1 text-[11px] text-amber-700 font-bold">(छूट दर)</span>
+                      <span className="ml-1 text-[11px] text-amber-700 font-bold bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">
+                        (छूट दर)
+                      </span>
                     )}
                   </p>
                 </div>
@@ -900,72 +1130,28 @@ export const BillingScreen: React.FC<BillingScreenProps> = ({ language }) => {
         </div>
       )}
 
-      {/* Bill Success / Receipt Preview Modal */}
-      {savedBill && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
-          <div className="w-full max-w-sm bg-white rounded-3xl shadow-2xl border border-mk-line overflow-hidden p-5 space-y-4 max-h-[90vh] overflow-y-auto">
-            <div className="text-center space-y-1">
-              <div className="w-14 h-14 rounded-full bg-emerald-100 text-emerald-600 mx-auto flex items-center justify-center mb-2">
-                <CheckCircle className="w-8 h-8 stroke-[2.5]" />
-              </div>
-              <h3 className="text-xl font-black text-mk-text">{t.billSavedSuccess}</h3>
-              <p className="text-xs text-mk-muted font-bold">
-                #{savedBill.receiptNumber} • {savedBill.businessDate}
-              </p>
-            </div>
-
-            {/* Itemized Table */}
-            <div className="border-t border-b border-dashed border-slate-200 py-3 space-y-2 text-xs">
-              {savedBill.items.map((it) => (
-                <div key={it.id} className="flex justify-between items-center">
-                  <span className="font-semibold text-mk-text">
-                    {it.itemName} ({it.quantity} {it.billingUnit})
-                  </span>
-                  <span className="font-bold text-mk-text">{formatINR(it.lineTotal)}</span>
-                </div>
-              ))}
-              <div className="pt-2 border-t border-slate-100 flex justify-between font-black text-base text-mk-text">
-                <span>{t.grandTotal}</span>
-                <span>{formatINR(savedBill.grandTotal)}</span>
-              </div>
-              {savedBill.settlement.creditDue > 0 && (
-                <div className="flex justify-between font-bold text-amber-700">
-                  <span>{t.balanceDue}</span>
-                  <span>{formatINR(savedBill.settlement.creditDue)}</span>
-                </div>
-              )}
-            </div>
-
-            {/* Actions: Send WhatsApp & Next Bill */}
-            <div className="space-y-2">
-              <button
-                type="button"
-                onClick={() => {
-                  const link = buildBillWhatsAppLink(
-                    savedBill,
-                    savedBill.settlement.customerPhone,
-                    'मुंशी किराना स्टोर',
-                    publicShareUrl
-                  );
-                  if (link.url) window.open(link.url, '_blank');
-                }}
-                className="w-full min-h-touch bg-[#25D366] hover:bg-[#20bd5a] text-white font-extrabold text-base rounded-2xl flex items-center justify-center gap-2 shadow-md shadow-emerald-500/20 active:scale-[0.98] transition-all"
-              >
-                <Share2 className="w-5 h-5 stroke-[2.5]" />
-                <span>{t.sendWhatsApp}</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setSavedBill(null)}
-                className="w-full min-h-touch bg-slate-100 hover:bg-slate-200 text-mk-text font-bold text-base rounded-2xl transition-colors"
-              >
-                {t.newBillBtn}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Branded Digital Receipt & Multi-format Export Modal */}
+      <ReceiptModal
+        bill={savedBill}
+        isOpen={Boolean(savedBill)}
+        onClose={() => setSavedBill(null)}
+        language={language}
+        publicShareUrl={publicShareUrl || undefined}
+        onNewBill={() => {
+          setSavedBill(null);
+          setBasket([]);
+          setDiscount('0');
+          setSelectedCustomer(null);
+          setCashTendered('');
+          setCashPortion('');
+          setUpiPortion('');
+          setCreditPortion('');
+          setItemQuery('');
+          setSelectedInventoryItem(null);
+          setRateInput('');
+          setQtyInput('1');
+        }}
+      />
 
       {/* Quick Add Customer Modal */}
       {isNewCustomerModalOpen && (
@@ -1017,6 +1203,16 @@ export const BillingScreen: React.FC<BillingScreenProps> = ({ language }) => {
         item={modalItem}
         isOpen={isInfoModalOpen}
         onClose={() => setIsInfoModalOpen(false)}
+        language={language}
+      />
+
+      {/* Barcode Scanner Modal */}
+      <BarcodeScannerModal
+        isOpen={isBarcodeModalOpen}
+        onClose={() => setIsBarcodeModalOpen(false)}
+        inventory={inventory}
+        onItemScanned={handleItemScannedFromBarcode}
+        onNewBarcodeRegister={handleRegisterNewBarcodeItem}
         language={language}
       />
     </div>

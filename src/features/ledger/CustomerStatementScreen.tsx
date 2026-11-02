@@ -13,8 +13,8 @@ import {
 import type { Language } from '../../i18n';
 import { translations } from '../../i18n';
 import { db } from '../../data/db';
-import type { Customer, CreditCharge, Repayment, LedgerReversal, CustomerLedgerSummary } from '../../domain/ledger';
-import { buildCustomerLedgerSummary } from '../../domain/ledger';
+import type { Customer, CreditCharge, Repayment, LedgerReversal, CustomerLedgerSummary, PaymentAllocation } from '../../domain/ledger';
+import { buildCustomerLedgerSummary, allocateRepayment } from '../../domain/ledger';
 import { formatINR } from '../../domain/money';
 import { getTodayKolkataDate } from '../../domain/interest';
 import { buildLedgerReminderWhatsAppLink } from '../../integrations/whatsapp';
@@ -101,9 +101,20 @@ export const CustomerStatementScreen: React.FC<CustomerStatementScreenProps> = (
     }
 
     const todayStr = getTodayKolkataDate();
+    const repaymentId = `repay-${Date.now()}`;
+
+    // 1. Fetch active customer charges and allocate FIFO
+    const charges = await db.credit_charges.where('customerId').equals(customer!.id).toArray();
+    const reversals = await db.ledger_reversals.toArray();
+    const reversedChargeIds = new Set(reversals.filter((r) => r.targetType === 'charge').map((r) => r.targetId));
+    const activeCharges = charges.filter((c) => !c.isReversed && !reversedChargeIds.has(c.id));
+
+    const { allocations } = allocateRepayment(amt, activeCharges);
+
+    // 2. Save Repayment
     await db.repayments.add({
-      id: `repay-${Date.now()}`,
-      shopId: 'demo-munsi-kirana-001',
+      id: repaymentId,
+      shopId: customer!.shopId || 'demo-munsi-kirana-001',
       customerId: customer!.id,
       amount: amt,
       paymentDate: todayStr,
@@ -113,6 +124,18 @@ export const CustomerStatementScreen: React.FC<CustomerStatementScreenProps> = (
       isReversed: false,
       createdAt: new Date().toISOString(),
     });
+
+    // 3. Save Allocations
+    if (allocations.length > 0) {
+      const allocationRecords: PaymentAllocation[] = allocations.map((a) => ({
+        id: `alloc-${Date.now()}-${a.chargeId}`,
+        shopId: customer!.shopId || 'demo-munsi-kirana-001',
+        repaymentId,
+        chargeId: a.chargeId,
+        allocatedAmount: a.amount.toNumber(),
+      }));
+      await db.payment_allocations.bulkAdd(allocationRecords);
+    }
 
     setIsAddRepaymentOpen(false);
     setRepayAmount('');
@@ -194,18 +217,34 @@ export const CustomerStatementScreen: React.FC<CustomerStatementScreenProps> = (
 
       {/* Customer Balance Summary Card */}
       <div className="p-5 bg-white rounded-3xl border border-mk-line shadow-sm space-y-3">
-        <div className="flex items-baseline justify-between">
-          <span className="text-xs font-bold text-mk-muted uppercase tracking-wider">
-            {t.balanceDueLabel}
-          </span>
-          <span
-            className={`text-3xl font-black ${
-              summary.outstandingBalance.greaterThan(0) ? 'text-amber-700' : 'text-emerald-700'
-            }`}
-          >
-            {formatINR(summary.outstandingBalance)}
-          </span>
-        </div>
+        {summary.advanceCredit.greaterThan(0) ? (
+          <div className="bg-emerald-50 border border-emerald-200 text-emerald-950 p-4 rounded-2xl flex items-center justify-between gap-3">
+            <div>
+              <span className="text-xs font-bold uppercase tracking-wider block text-emerald-800">
+                {isHi ? 'ग्राहक जमा राशि (Advance Credit)' : 'Customer Advance Credit'}
+              </span>
+              <p className="text-[11px] text-emerald-700 mt-0.5 font-medium">
+                {isHi ? 'देय राशि से अधिक भुगतान जमा है' : 'Credit balance with shop'}
+              </p>
+            </div>
+            <span className="text-3xl font-black text-emerald-700">
+              +{formatINR(summary.advanceCredit)}
+            </span>
+          </div>
+        ) : (
+          <div className="flex items-baseline justify-between">
+            <span className="text-xs font-bold text-mk-muted uppercase tracking-wider">
+              {t.balanceDueLabel}
+            </span>
+            <span
+              className={`text-3xl font-black ${
+                summary.outstandingBalance.greaterThan(0) ? 'text-amber-700' : 'text-emerald-700'
+              }`}
+            >
+              {formatINR(summary.outstandingBalance)}
+            </span>
+          </div>
+        )}
 
         <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100 text-xs">
           <div>

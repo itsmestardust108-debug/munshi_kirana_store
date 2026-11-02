@@ -24,12 +24,14 @@ export const UNITS: Record<UnitType, UnitDefinition> = {
 
 /**
  * Checks if two units are compatible for conversion (e.g. kg and g, or l and ml)
+ * Note: Packs are discrete units that require explicit conversion and cannot be silently converted to pieces.
  */
 export function areUnitsCompatible(unitA: string, unitB: string): boolean {
+  if (unitA === unitB) return true;
   const defA = UNITS[unitA as UnitType];
   const defB = UNITS[unitB as UnitType];
   if (!defA || !defB) return unitA === unitB;
-  return defA.category === defB.category;
+  return defA.baseUnit === defB.baseUnit;
 }
 
 /**
@@ -38,7 +40,71 @@ export function areUnitsCompatible(unitA: string, unitB: string): boolean {
 export function getCompatibleUnits(baseUnit: string): UnitDefinition[] {
   const def = UNITS[baseUnit as UnitType];
   if (!def) return [UNITS.pc];
-  return Object.values(UNITS).filter((u) => u.category === def.category);
+  return Object.values(UNITS).filter((u) => u.baseUnit === def.baseUnit);
+}
+
+/**
+ * Validates quantity entry:
+ * - Rejects zero, negative, NaN, and non-finite quantities
+ * - Rejects incompatible units
+ * - Rejects fractional quantities for discrete pieces (pc)
+ */
+export function validateQuantity(
+  quantity: Decimal.Value,
+  billingUnit: string,
+  baseUnit: string
+): { valid: boolean; error?: string; quantityDecimal?: Decimal } {
+  let q: Decimal;
+  try {
+    q = toDecimal(quantity);
+  } catch {
+    return { valid: false, error: 'अमान्य संख्या (Invalid number)' };
+  }
+
+  if (!q.isFinite()) {
+    return { valid: false, error: 'अमान्य मात्रा (Non-finite quantity)' };
+  }
+  if (q.isZero() || q.isNegative()) {
+    return { valid: false, error: 'मात्रा शून्य या नकारात्मक नहीं हो सकती (Quantity must be greater than zero)' };
+  }
+
+  // Check unit compatibility
+  if (!areUnitsCompatible(billingUnit, baseUnit)) {
+    return {
+      valid: false,
+      error: `असंगत इकाई: '${billingUnit}' को '${baseUnit}' में नहीं बदला जा सकता`,
+    };
+  }
+
+  // Discrete unit check: If unit is piece 'pc', fractional quantities are invalid
+  const def = UNITS[billingUnit as UnitType];
+  if (def && def.code === 'pc' && !q.isInteger()) {
+    return {
+      valid: false,
+      error: 'नग (Piece) की मात्रा पूर्ण संख्या होनी चाहिए (Pieces cannot be fractional)',
+    };
+  }
+
+  return { valid: true, quantityDecimal: q };
+}
+
+/**
+ * Gets human-readable unit label
+ */
+export function getUnitDisplayLabel(unit: string, isHindi = true): string {
+  const def = UNITS[unit as UnitType];
+  if (!def) return unit;
+  return isHindi ? def.labelHi : def.labelEn;
+}
+
+/**
+ * Formats rate with correct base unit (e.g. ₹60.00/kg or ₹30.00/नग)
+ * Never displays ₹60/g for 250g of Sugar @ ₹60/kg!
+ */
+export function formatRateWithUnit(rate: number | string, baseUnit: string, isHindi = true): string {
+  const num = typeof rate === 'number' ? rate.toFixed(2) : Number(rate).toFixed(2);
+  const unitLabel = getUnitDisplayLabel(baseUnit, isHindi);
+  return `₹${num}/${unitLabel}`;
 }
 
 /**
